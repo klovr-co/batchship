@@ -5,11 +5,15 @@ import { pathToFileURL } from 'node:url';
 import { loadConfig } from './config.mjs';
 
 export function checkPr({ headRef, baseRef, headRepo, baseRepo, config }) {
-  if (baseRef !== config.protectedBranch) return null;
-  const ok = [...config.batchPrefixes, ...config.hotfixPrefixes].some((p) => headRef.startsWith(p));
-  if (ok && headRepo === baseRepo) return null;
+  const prot = config.protectedBranch;
+  const prod = config.productionBranch;
+  if (baseRef !== prot && baseRef !== prod) return null;
   if (headRepo !== baseRepo) return `PR from a fork (${headRepo}) into ${baseRef}.`;
-  return `PR into ${baseRef} must come from ${config.batchPrefixes.join(', ')} or ${config.hotfixPrefixes.join(', ')} (head: ${headRef}).`;
+  const hotfix = config.hotfixPrefixes.some((p) => headRef.startsWith(p));
+  if (prod && baseRef === prod)
+    return headRef === prot || hotfix ? null : `PR into ${prod} is a release: it must come from ${prot} or ${config.hotfixPrefixes.join(', ')} (head: ${headRef}).`;
+  const ok = hotfix || config.batchPrefixes.some((p) => headRef.startsWith(p));
+  return ok ? null : `PR into ${baseRef} must come from ${config.batchPrefixes.join(', ')} or ${config.hotfixPrefixes.join(', ')} (head: ${headRef}).`;
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {

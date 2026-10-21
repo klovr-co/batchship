@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-// Run in the target repo: node <batchship>/scripts/init.mjs  (never overwrites existing files)
+// Run in the target repo: node <batchship>/scripts/init.mjs [--protected staging] [--production main]  (never overwrites existing files)
+// --protected: integration branch where batches land (default main). --production: optional release branch, takes PRs from the integration branch.
 import { existsSync, mkdirSync, copyFileSync, appendFileSync, readFileSync, writeFileSync, chmodSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -7,6 +8,7 @@ import { execSync } from 'node:child_process';
 import { detect, ciWorkflows } from './detect.mjs';
 import { DEFAULTS } from './config.mjs';
 
+const arg = (n) => { const i = process.argv.indexOf(`--${n}`); return i > 0 ? process.argv[i + 1] : undefined; };
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, '..');
 const put = (from, to) => {
@@ -17,18 +19,25 @@ const put = (from, to) => {
 };
 
 // runtime copy: agents without the plugin can still run the check
-for (const f of ['config.mjs', 'batch-check.mjs', 'batch-guard.mjs', 'detect.mjs', 'branch-check.mjs']) put(`scripts/${f}`, `.batchship/${f}`);
+for (const f of ['config.mjs', 'batch-check.mjs', 'batch-guard.mjs', 'detect.mjs', 'branch-check.mjs', 'pre-push.mjs']) put(`scripts/${f}`, `.batchship/${f}`);
 writeFileSync('.batchship/package.json', '{"type":"module"}\n');
 
 if (!existsSync('.ship.json')) {
   const checks = detect();
-  writeFileSync('.ship.json', JSON.stringify({ ...DEFAULTS, checks }, null, 2) + '\n');
+  writeFileSync('.ship.json', JSON.stringify({ ...DEFAULTS, protectedBranch: arg('protected') || DEFAULTS.protectedBranch, productionBranch: arg('production') || null, checks }, null, 2) + '\n');
   console.log(`create .ship.json (${checks.length} draft checks)`);
   if (!checks.length) console.log('  none detected: add checks by hand');
 } else console.log('skip   .ship.json (exists)');
 put('templates/agents-hooks.json', '.agents/hooks.json'); // Antigravity workspace hook
 put('templates/codex-hooks.json', '.codex/hooks.json'); // Codex repo hook
-put('templates/batch-branch-check.yml', '.github/workflows/batch-branch-check.yml');
+const wf = '.github/workflows/batch-branch-check.yml';
+if (!existsSync(wf)) {
+  const cfg = JSON.parse(readFileSync('.ship.json', 'utf8'));
+  const branches = JSON.stringify([cfg.protectedBranch, cfg.productionBranch].filter(Boolean));
+  mkdirSync(dirname(wf), { recursive: true });
+  writeFileSync(wf, readFileSync(join(root, 'templates/batch-branch-check.yml'), 'utf8').replace('__BRANCHES__', branches));
+  console.log(`create ${wf}`);
+} else console.log(`skip   ${wf} (exists)`);
 put('templates/BATCH.md', 'BATCH.md');
 put('templates/pull_request_template.md', '.github/pull_request_template.md');
 
@@ -39,7 +48,7 @@ if (!agents.includes('BATCH.md')) { appendFileSync('AGENTS.md', (agents ? '\n' :
 const hook = execSync('git rev-parse --git-path hooks/pre-push', { encoding: 'utf8' }).trim();
 if (!existsSync(hook)) {
   mkdirSync(dirname(hook), { recursive: true });
-  writeFileSync(hook, `#!/bin/sh\nwhile read l ls r rs; do case "$r" in refs/heads/main|refs/heads/master) echo "batchship: no direct push to the protected branch; use ship/NAME + PR" >&2; exit 1;; esac; done\n`);
+  writeFileSync(hook, '#!/bin/sh\n[ -f .batchship/pre-push.mjs ] || exit 0\nexec node .batchship/pre-push.mjs\n');
   chmodSync(hook, 0o755);
   console.log(`create ${hook}`);
 }

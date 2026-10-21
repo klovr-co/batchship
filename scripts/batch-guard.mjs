@@ -12,18 +12,27 @@ const isBatchBranch = (b, c) => [...c.batchPrefixes, ...c.hotfixPrefixes].some((
 export function evaluate({ command, branch, head, marker, config }) {
   const out = [];
   const prot = config.protectedBranch;
+  const prod = config.productionBranch;
+  const guarded = [prot, prod].filter(Boolean);
+  const isHotfix = (b) => config.hotfixPrefixes.some((p) => b.startsWith(p));
   const segments = command.split(/&&|\|\||;|\n/).map((s) => s.trim());
   for (const seg of segments) {
     if (/^git\s+push\b/.test(seg)) {
-      const toMain = new RegExp(`(\\s|:|\\/)${prot}(\\s|$)`).test(seg) || (/^git\s+push\s*$/.test(seg) && branch === prot);
-      if (toMain) out.push(`Do not push to ${prot}. Work on ${config.batchPrefixes[0]}NAME and open a PR.`);
+      const toGuarded = guarded.find((g) => new RegExp(`(\\s|:|\\/)${g}(\\s|$)`).test(seg) || (/^git\s+push\s*$/.test(seg) && branch === g));
+      if (toGuarded) out.push(`Do not push to ${toGuarded}. Work on ${config.batchPrefixes[0]}NAME and open a PR.`);
     }
     if (/^gh\s+pr\s+(create|ready)\b/.test(seg)) {
-      const base = (seg.match(/(?:--base|-B)[=\s]+(\S+)/) || [])[1] || prot;
-      if (base !== prot) continue;
+      const base = (seg.match(/(?:--base|-B)[=\s]+(\S+)/) || [])[1];
+      if (!base && prod) { out.push(`Pass --base explicitly (${prot} for batches, ${prod} for releases); the repo default may be ${prod}.`); continue; }
+      const target = base || prot;
+      if (prod && target === prod) {
+        if (branch !== prot && !isHotfix(branch)) out.push(`PR to ${prod} is a release: it must come from ${prot} or ${config.hotfixPrefixes.join(', ')} (now: ${branch}).`);
+        continue;
+      }
+      if (target !== prot) continue;
       if (!isBatchBranch(branch, config))
         out.push(`PR to ${prot} must come from ${config.batchPrefixes.join(', ')} or ${config.hotfixPrefixes.join(', ')} (now: ${branch}).`);
-      else if (!branch.startsWith(config.hotfixPrefixes[0] || '\0') && marker !== head)
+      else if (!isHotfix(branch) && marker !== head)
         out.push('No passing batch-check for HEAD. Run: node .batchship/batch-check.mjs (see /ship-batch check).');
     }
   }

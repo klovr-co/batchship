@@ -24,3 +24,14 @@ test('agy output: deny in block mode, allow with warning otherwise', () => {
   assert.equal(formatOutput('agy', 'm', true).decision, 'deny');
   assert.equal(formatOutput('agy', 'm', false).decision, 'allow');
 });
+
+const two = { ...DEFAULTS, protectedBranch: 'staging', productionBranch: 'main' };
+test('two-branch: batch PR to staging from ship/ with marker is allowed', () => assert.deepEqual(run('gh pr create --base staging', { config: two }), []));
+test('two-branch: PR without --base is flagged', () => assert.equal(run('gh pr create', { config: two }).length, 1));
+test('two-branch: release PR staging -> main is allowed', () => assert.deepEqual(run('gh pr create --base main', { config: two, branch: 'staging' }), []));
+test('two-branch: ship/ branch straight to main is flagged', () => assert.equal(run('gh pr create --base main', { config: two }).length, 1));
+test('two-branch: hotfix to main is allowed', () => assert.deepEqual(run('gh pr create --base main', { config: two, branch: 'hotfix/x', marker: '' }), []));
+test('two-branch: push to staging and main both flagged', () => {
+  assert.equal(run('git push origin staging', { config: two }).length, 1);
+  assert.equal(run('git push origin main', { config: two }).length, 1);
+});

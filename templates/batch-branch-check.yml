@@ -3,7 +3,7 @@
 name: batch-branch-check
 on:
   pull_request:
-    branches: [main]
+    branches: __BRANCHES__
     types: [opened, reopened, synchronize, ready_for_review]
 jobs:
   branch:
