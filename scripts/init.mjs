@@ -17,7 +17,7 @@ const put = (from, to) => {
 };
 
 // runtime copy: agents without the plugin can still run the check
-for (const f of ['config.mjs', 'batch-check.mjs', 'batch-guard.mjs', 'detect.mjs']) put(`scripts/${f}`, `.batchship/${f}`);
+for (const f of ['config.mjs', 'batch-check.mjs', 'batch-guard.mjs', 'detect.mjs', 'branch-check.mjs']) put(`scripts/${f}`, `.batchship/${f}`);
 writeFileSync('.batchship/package.json', '{"type":"module"}\n');
 
 if (!existsSync('.ship.json')) {
@@ -28,6 +28,7 @@ if (!existsSync('.ship.json')) {
 } else console.log('skip   .ship.json (exists)');
 put('templates/agents-hooks.json', '.agents/hooks.json'); // Antigravity workspace hook
 put('templates/codex-hooks.json', '.codex/hooks.json'); // Codex repo hook
+put('templates/batch-branch-check.yml', '.github/workflows/batch-branch-check.yml');
 put('templates/BATCH.md', 'BATCH.md');
 put('templates/pull_request_template.md', '.github/pull_request_template.md');
 

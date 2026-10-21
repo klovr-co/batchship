@@ -60,6 +60,7 @@ flowchart TD
 | Plugin hook (`hooks/hooks.json`) | Claude Code (tested): blocks `gh pr create/ready` to `main` outside `ship/*` / `hotfix/*` or without a passing local check; blocks push to `main` |
 | `.agents/hooks.json` | Antigravity: same guard, agy hook protocol (unit-tested; not run inside agy) |
 | `.codex/hooks.json` | Codex: same guard. **Did not fire in a live test**; the repo may need to be trusted first. Rely on `AGENTS.md` (verified: Codex refused a push to `main`) and `pre-push` |
+| `.github/workflows/batch-branch-check.yml` | GitHub, any agent or person: flags a ready PR to `main` whose head is not `ship/*` or `hotfix/*` (or comes from a fork). Starts as a warning; set `SHIP_ENFORCE` to `"1"` to fail it. Not yet run on GitHub. |
 | `/ship-batch` skill | start, check, open, close, status |
 | `AGENTS.md` + `BATCH.md` prompt block | Other agents and delegated children |
 | git `pre-push` hook | Any agent or human |
@@ -70,4 +71,4 @@ The hook starts in `warn` mode (`guardMode` in `.ship.json`); switch to `block` 
 
     node --test 'scripts/tests/*.test.mjs'
 
-Not built yet: release-gate workflow, CI branch-name warning, `ci-health` report (see the spec).
+Not built yet: release-gate workflow and the `ci-health` report (see the spec).
