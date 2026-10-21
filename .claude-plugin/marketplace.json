@@ -1,0 +1,11 @@
+{
+  "name": "batchship",
+  "owner": { "name": "klovr" },
+  "plugins": [
+    {
+      "name": "batchship",
+      "source": "./",
+      "description": "Batch many fixes into one CI run. Local check, PR guard, /ship-batch skill."
+    }
+  ]
+}

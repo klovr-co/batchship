@@ -1,0 +1,10 @@
+{
+  "protectedBranch": "main",
+  "batchPrefixes": ["ship/"],
+  "hotfixPrefixes": ["hotfix/"],
+  "guardMode": "warn",
+  "checks": [
+    { "name": "lint", "cmd": "npm run lint", "quick": true },
+    { "name": "test", "cmd": "npm test" }
+  ]
+}
