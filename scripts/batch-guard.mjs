@@ -9,18 +9,18 @@ import { findRoot, loadConfig } from './config.mjs';
 
 const isBatchBranch = (b, c) => [...c.batchPrefixes, ...c.hotfixPrefixes].some((p) => b.startsWith(p));
 
-const triageFirst = (b) => `You are on ${b}, a live branch: do not edit or commit here. Triage first: node .batchship/triage.mjs list, `
+const triageFirst = (b, t) => `You are on ${b}, a live branch: do not edit or commit here. Triage first: ${t} list, `
   + 'then join <batch> or new <name>, and do the work in the printed worktree (or hand it to a worker there).';
 
 // branchOf/headOf/markerOf(dir) read the git state of the directory a command runs in; tests may pass fixed values instead.
-export function evaluate({ command = '', filePath, cwd = '.', branch, branchOf = () => branch, head, headOf = () => head, marker, markerOf = () => marker, config }) {
+export function evaluate({ command = '', filePath, cwd = '.', branch, branchOf = () => branch, head, headOf = () => head, marker, markerOf = () => marker, config, triage = 'node .batchship/triage.mjs' }) {
   const out = [];
   const prot = config.protectedBranch;
   const manual = config.manualBranches || [];
   const live = [prot, ...manual];
   if (filePath) {
     const b = branchOf(dirname(filePath));
-    return live.includes(b) ? [triageFirst(b)] : [];
+    return live.includes(b) ? [triageFirst(b, triage)] : [];
   }
   // dir is null once a cd target cannot be worked out (loop variables, $(...)): then branch-based rules stay quiet.
   let dir = cwd;
@@ -40,7 +40,7 @@ export function evaluate({ command = '', filePath, cwd = '.', branch, branchOf =
     seg = seg.replace(/^git\s+-C\s+(?:"([^"]+)"|(\S+))/, (_, q, p) => { segDir = where(q || p); return 'git'; });
     branch = segDir ? branchOf(segDir) : '';
     const known = !!branch;
-    if (/^git\s+commit\b/.test(seg) && live.includes(branch)) out.push(triageFirst(branch));
+    if (/^git\s+commit\b/.test(seg) && live.includes(branch)) out.push(triageFirst(branch, triage));
     if (/^git\s+push\b/.test(seg) && (/BATCHSHIP_ALLOW/.test(raw) || /--no-verify\b/.test(seg)))
       out.push('Do not bypass the push guard (BATCHSHIP_ALLOW / --no-verify); that override is for a human.');
     if (/^git\s+push\b/.test(seg)) {
@@ -104,7 +104,9 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href) {
     const p = git('rev-parse --git-path batchship-check', existing(d));
     return p && existsSync(resolve(existing(d), p)) ? readFileSync(resolve(existing(d), p), 'utf8').trim() : '';
   };
-  const problems = evaluate({ command, filePath, cwd, branchOf, headOf, markerOf, config });
+  // Repos set up before triage existed have no .batchship/triage.mjs: point at this plugin's copy.
+  const triage = existsSync(resolve(root, '.batchship/triage.mjs')) ? 'node .batchship/triage.mjs' : `node "${resolve(import.meta.dirname, 'triage.mjs')}"`;
+  const problems = evaluate({ command, filePath, cwd, branchOf, headOf, markerOf, config, triage });
   if (problems.length) console.log(JSON.stringify(formatOutput(agent, `batchship: ${problems.join(' ')}`, config.guardMode === 'block')));
   else if (agent === 'agy') console.log(JSON.stringify({ decision: 'allow' }));
 }
