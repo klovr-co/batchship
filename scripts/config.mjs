@@ -6,7 +6,7 @@ export const DEFAULTS = {
   batchPrefixes: ['ship/'],
   hotfixPrefixes: ['hotfix/'],
   guardMode: 'warn', // 'warn' | 'block'
-  checks: [],        // { name, cmd, paths?: string[] (prefixes), quick?: boolean }
+  checks: [],        // { name, cmd, cwd?, paths?: string[] (prefixes), quick?: boolean }
 };
 
 export function loadConfig(dir = process.cwd()) {

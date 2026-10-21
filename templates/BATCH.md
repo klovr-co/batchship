@@ -11,7 +11,7 @@ Pay for CI once per batch, not once per fix.
 A batch with no push for 3 days: close or abandon, remove the row.
 
 ## Delegated agent prompt (copy into delegate_task)
-> Work only on branch `ship/NAME`. Never open a PR to `main`, never push to `main`, never deploy. Run `node scripts/batch-check.mjs --quick` before each commit to the batch.
+> Work only on branch `ship/NAME`. Never open a PR to `main`, never push to `main`, never deploy. Run `node .batchship/batch-check.mjs --quick` before each commit to the batch.
 
 ## Open batches
 | Owner | Area | Branch | Started | Status |

@@ -4,4 +4,4 @@ Batch: `ship/...` or hotfix: reason
 -
 
 ## Local check
-- [ ] `node scripts/batch-check.mjs` passed on HEAD
+- [ ] `node .batchship/batch-check.mjs` passed on HEAD

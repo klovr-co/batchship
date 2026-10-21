@@ -21,7 +21,7 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   const picked = selectChecks(changed, config.checks, { quick });
   for (const c of picked) {
     console.log(`\n== ${c.name}: ${c.cmd}`);
-    if (spawnSync(c.cmd, { shell: true, stdio: 'inherit' }).status !== 0) { console.error(`FAILED: ${c.name}`); process.exit(1); }
+    if (spawnSync(c.cmd, { shell: true, stdio: 'inherit', cwd: c.cwd || process.cwd() }).status !== 0) { console.error(`FAILED: ${c.name}`); process.exit(1); }
   }
   if (!quick) writeFileSync(git('rev-parse --git-path batchship-check'), git('rev-parse HEAD'));
   console.log(`\nbatch-check passed (${picked.length} checks${quick ? ', quick: marker not written' : ''})`);

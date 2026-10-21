@@ -23,7 +23,7 @@ export function evaluate({ command, branch, head, marker, config }) {
       if (!isBatchBranch(branch, config))
         out.push(`PR to ${prot} must come from ${config.batchPrefixes.join(', ')} or ${config.hotfixPrefixes.join(', ')} (now: ${branch}).`);
       else if (!branch.startsWith(config.hotfixPrefixes[0] || '\0') && marker !== head)
-        out.push('No passing batch-check for HEAD. Run: node scripts/batch-check.mjs (see /ship-batch check).');
+        out.push('No passing batch-check for HEAD. Run: node .batchship/batch-check.mjs (see /ship-batch check).');
     }
   }
   return out;
