@@ -48,3 +48,34 @@ test('agents may not mark ready or merge', () => {
   assert.match(run('gh pr merge 12 --squash')[0], /do not merge/);
 });
 test('non-draft PR create is flagged', () => assert.ok(evaluate({ ...base, command: 'gh pr create --base main' }).some((m) => /draft/.test(m))));
+
+const branches = { '/r': 'main', '/r/src': 'main', '/wt': 'ship/a-20261022', '/wt/src': 'ship/a-20261022' };
+const at = (o) => evaluate({ ...base, branchOf: (d) => branches[d] || 'main', ...o });
+test('editing a file on the live branch says triage first; in a batch worktree it is fine', () => {
+  assert.match(at({ filePath: '/r/src/a.js' })[0], /triage first/i);
+  assert.deepEqual(at({ filePath: '/wt/src/a.js' }), []);
+  assert.match(at({ filePath: '/r/src/a.js', config: m, branchOf: () => 'staging' })[0], /staging/);
+});
+test('commit on live is flagged, following cd and git -C', () => {
+  assert.match(at({ command: 'git commit -m x', cwd: '/r' })[0], /triage first/i);
+  assert.deepEqual(at({ command: 'cd /wt && git commit -m x', cwd: '/r' }), []);
+  assert.deepEqual(at({ command: 'git -C /wt commit -m x', cwd: '/r' }), []);
+  assert.equal(at({ command: 'cd /wt && git commit -m x && cd /r && git commit -m y', cwd: '/r' }).length, 1);
+});
+
+import { soloMix } from '../batch-check.mjs';
+test('soloPaths must not mix with other changes', () => {
+  assert.equal(soloMix(['.github/w.yml', 'a.js'], ['.github/'])[0], '.github/w.yml');
+  assert.equal(soloMix(['.github/w.yml'], ['.github/']), null);
+  assert.equal(soloMix(['a.js'], []), null);
+});
+test('cd through variables and subshells: resolved when possible, quiet when not', () => {
+  assert.deepEqual(at({ command: 'W=/wt\ncd $W && git commit -m x', cwd: '/r' }), []);
+  assert.deepEqual(at({ command: 'for n in a b; do (cd /x/$n && gh pr create --draft --base main); done', cwd: '/r' }), []);
+  assert.equal(at({ command: 'W=/r\ncd "$W" && git commit -m x', cwd: '/wt' }).length, 1);
+});
+test('PR check reads the marker of the worktree the command runs in', () => {
+  const o = { headOf: (d) => (d === '/wt' ? 'w1' : 'm1'), markerOf: (d) => (d === '/wt' ? 'w1' : '') };
+  assert.deepEqual(at({ command: 'cd /wt && gh pr create --draft --base main', cwd: '/r', ...o }), []);
+  assert.match(at({ command: 'cd /wt && gh pr create --draft --base main', cwd: '/r', ...o, markerOf: () => '' })[0], /batch-check/);
+});

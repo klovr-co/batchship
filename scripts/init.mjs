@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Run in the target repo: node <batchship>/scripts/init.mjs [--protected staging] [--manual main]  (never overwrites existing files)
 // --protected: the live branch where batches land (default main). --manual: comma list of branches only a human touches (agents may not push or PR to them).
+// --update: in a repo already set up, refresh the .batchship/ runtime, BATCH.md and the batch section of AGENTS.md (keeps .ship.json).
 import { readdirSync, existsSync, mkdirSync, copyFileSync, appendFileSync, readFileSync, writeFileSync, chmodSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -11,15 +12,17 @@ import { DEFAULTS } from './config.mjs';
 const arg = (n) => { const i = process.argv.indexOf(`--${n}`); return i > 0 ? process.argv[i + 1] : undefined; };
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, '..');
-const put = (from, to) => {
-  if (existsSync(to)) return console.log(`skip   ${to} (exists)`);
+const update = process.argv.includes('--update');
+const put = (from, to, refresh = false) => {
+  if (existsSync(to) && !(update && refresh)) return console.log(`skip   ${to} (exists)`);
+  const verb = existsSync(to) ? 'update' : 'create';
   mkdirSync(dirname(to), { recursive: true });
   copyFileSync(join(root, from), to);
-  console.log(`create ${to}`);
+  console.log(`${verb} ${to}`);
 };
 
 // runtime copy: agents without the plugin can still run the check
-for (const f of ['config.mjs', 'batch-check.mjs', 'batch-guard.mjs', 'detect.mjs', 'branch-check.mjs', 'pre-push.mjs']) put(`scripts/${f}`, `.batchship/${f}`);
+for (const f of ['config.mjs', 'batch-check.mjs', 'batch-guard.mjs', 'detect.mjs', 'branch-check.mjs', 'pre-push.mjs', 'triage.mjs']) put(`scripts/${f}`, `.batchship/${f}`, true);
 writeFileSync('.batchship/package.json', '{"type":"module"}\n');
 
 if (!existsSync('.ship.json')) {
@@ -41,12 +44,19 @@ if (!existsSync(wf)) {
   if (!pinned) console.log('  note: using actions/checkout@v4; if the repo requires SHA-pinned actions, pin it by hand');
   console.log(`create ${wf}`);
 } else console.log(`skip   ${wf} (exists)`);
-put('templates/BATCH.md', 'BATCH.md');
+put('templates/BATCH.md', 'BATCH.md', true);
 put('templates/pull_request_template.md', '.github/pull_request_template.md');
 
-const rule = readFileSync(join(root, 'templates/AGENTS-snippet.md'), 'utf8');
+// The batch section sits between markers so --update can replace it. Older installs had an unmarked "## Batch flow" section.
+const rule = readFileSync(join(root, 'templates/AGENTS-snippet.md'), 'utf8').trim();
 const agents = existsSync('AGENTS.md') ? readFileSync('AGENTS.md', 'utf8') : '';
-if (!agents.includes('BATCH.md')) { appendFileSync('AGENTS.md', (agents ? '\n' : '') + rule); console.log('update AGENTS.md'); }
+const section = /<!-- batchship:start -->[\s\S]*?<!-- batchship:end -->\n?|## Batch flow\n[\s\S]*?(?=\n## |$)/;
+if (section.test(agents)) {
+  if (update) { writeFileSync('AGENTS.md', agents.replace(section, rule + '\n')); console.log('update AGENTS.md (batch section)'); }
+} else { appendFileSync('AGENTS.md', (agents ? '\n' : '') + rule + '\n'); console.log('update AGENTS.md'); }
+// Claude Code reads CLAUDE.md, not AGENTS.md.
+const claude = existsSync('CLAUDE.md') ? readFileSync('CLAUDE.md', 'utf8') : '';
+if (!/@AGENTS\.md/.test(claude)) { appendFileSync('CLAUDE.md', (claude ? '\n' : '') + '@AGENTS.md\n'); console.log('update CLAUDE.md (imports AGENTS.md)'); }
 
 const hook = execSync('git rev-parse --git-path hooks/pre-push', { encoding: 'utf8' }).trim();
 if (!existsSync(hook)) {
