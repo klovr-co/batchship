@@ -6,16 +6,19 @@ Pay for CI once per batch of fixes, not once per fix. Made for coding agents (Cl
 
 ## Install
 
-Once per machine (global):
+Pick your agent, then run `init` once per repo (all agents):
 
-    /plugin marketplace add klovr-co/batchship
-    /plugin install batchship@batchship
+| Agent | Install the plugin (skill) |
+|---|---|
+| Claude Code | `/plugin marketplace add klovr-co/batchship` then `/plugin install batchship@batchship` |
+| Codex | `codex plugin marketplace add klovr-co/batchship` then `codex plugin add batchship@batchship` |
+| Antigravity (agy) | `agy plugin install https://github.com/klovr-co/batchship` |
 
-Once per repo (from the repo root):
+Per repo, from the repo root (needs Node and a clone of this repo, or the installed plugin directory):
 
     node <path-to-batchship>/scripts/init.mjs
 
-`init` writes `.ship.json`, `BATCH.md`, a PR template line, three lines in `AGENTS.md`, and a git `pre-push` hook. It never overwrites existing files. Then edit `.ship.json` so `checks` match your CI jobs.
+`init` writes `.batchship/` (the scripts), `.ship.json`, `BATCH.md`, a PR template, three lines in `AGENTS.md`, a git `pre-push` hook, and per-agent hook files: `.claude`-plugin hook is in the plugin, `.agents/hooks.json` (Antigravity) and `.codex/hooks.json` (Codex). It never overwrites existing files. Then run `/ship-batch setup` or edit `.ship.json` so `checks` match your CI jobs.
 
 ## How it works
 
@@ -54,7 +57,9 @@ flowchart TD
 
 | Layer | Covers |
 |---|---|
-| Plugin hook (`hooks/hooks.json`) | Claude Code: blocks `gh pr create/ready` to `main` outside `ship/*` / `hotfix/*` or without a passing local check; blocks push to `main` |
+| Plugin hook (`hooks/hooks.json`) | Claude Code (tested): blocks `gh pr create/ready` to `main` outside `ship/*` / `hotfix/*` or without a passing local check; blocks push to `main` |
+| `.agents/hooks.json` | Antigravity: same guard, agy hook protocol (unit-tested; not run inside agy) |
+| `.codex/hooks.json` | Codex: same guard. **Did not fire in a live test**; the repo may need to be trusted first. Rely on `AGENTS.md` (verified: Codex refused a push to `main`) and `pre-push` |
 | `/ship-batch` skill | start, check, open, close, status |
 | `AGENTS.md` + `BATCH.md` prompt block | Other agents and delegated children |
 | git `pre-push` hook | Any agent or human |
