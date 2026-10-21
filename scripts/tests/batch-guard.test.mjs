@@ -14,3 +14,13 @@ test('PR into ship/ branch is free', () => assert.deepEqual(run('gh pr create --
 test('push to main is flagged', () => assert.equal(run('git push origin main').length, 1));
 test('push HEAD:main is flagged', () => assert.equal(run('git push origin HEAD:main').length, 1));
 test('push to ship/ is allowed', () => assert.deepEqual(run('git push -u origin ship/a'), []));
+
+import { parseInput, formatOutput } from '../batch-guard.mjs';
+test('parses Claude Code input', () =>
+  assert.deepEqual(parseInput({ tool_input: { command: 'gh pr create' }, cwd: '/r' }), { agent: 'claude', command: 'gh pr create', cwd: '/r' }));
+test('parses agy input', () =>
+  assert.deepEqual(parseInput({ toolCall: { name: 'run_command', args: { CommandLine: 'git push origin main', Cwd: '/r' } } }), { agent: 'agy', command: 'git push origin main', cwd: '/r' }));
+test('agy output: deny in block mode, allow with warning otherwise', () => {
+  assert.equal(formatOutput('agy', 'm', true).decision, 'deny');
+  assert.equal(formatOutput('agy', 'm', false).decision, 'allow');
+});

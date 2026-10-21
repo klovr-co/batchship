@@ -1,0 +1,4 @@
+{
+  "name": "batchship",
+  "description": "Pay for CI once per batch of fixes, not once per fix. /ship-batch skill for batch branches, a local check and a PR guard."
+}

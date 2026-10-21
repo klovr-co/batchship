@@ -26,6 +26,7 @@ if (!existsSync('.ship.json')) {
   console.log(`create .ship.json (${checks.length} draft checks)`);
   if (!checks.length) console.log('  none detected: add checks by hand');
 } else console.log('skip   .ship.json (exists)');
+put('templates/agents-hooks.json', '.agents/hooks.json'); // Antigravity workspace hook
 put('templates/BATCH.md', 'BATCH.md');
 put('templates/pull_request_template.md', '.github/pull_request_template.md');
 

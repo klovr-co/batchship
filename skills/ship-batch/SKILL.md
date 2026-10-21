@@ -3,7 +3,7 @@ name: ship-batch
 description: Batch many fixes into one PR and one CI run. Use for /ship-batch setup|start|check|open|close|status, or before opening any PR to the protected branch.
 ---
 
-Repo state lives in `.ship.json`, `BATCH.md` and `.batchship/`. If they are missing, run `node ${CLAUDE_PLUGIN_ROOT}/scripts/init.mjs` from the repo root, then `setup`.
+Repo state lives in `.ship.json`, `BATCH.md` and `.batchship/`. If they are missing, run `init.mjs` from the repo root (it lives in the batchship plugin or clone: `scripts/init.mjs`; in Claude Code `${CLAUDE_PLUGIN_ROOT}/scripts/init.mjs`), then `setup`.
 
 ## setup
 Review the draft checks in `.ship.json` (init filled them from `node .batchship/detect.mjs`).
