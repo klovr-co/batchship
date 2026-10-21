@@ -10,7 +10,7 @@ jobs:
     if: github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: __CHECKOUT__
       - run: node .batchship/branch-check.mjs
         env:
           HEAD_REF: ${{ github.head_ref }}

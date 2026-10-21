@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Run in the target repo: node <batchship>/scripts/init.mjs [--protected staging] [--manual main]  (never overwrites existing files)
 // --protected: the live branch where batches land (default main). --manual: comma list of branches only a human touches (agents may not push or PR to them).
-import { existsSync, mkdirSync, copyFileSync, appendFileSync, readFileSync, writeFileSync, chmodSync } from 'node:fs';
+import { readdirSync, existsSync, mkdirSync, copyFileSync, appendFileSync, readFileSync, writeFileSync, chmodSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execSync } from 'node:child_process';
@@ -35,7 +35,10 @@ if (!existsSync(wf)) {
   const cfg = JSON.parse(readFileSync('.ship.json', 'utf8'));
   const branches = JSON.stringify([cfg.protectedBranch]);
   mkdirSync(dirname(wf), { recursive: true });
-  writeFileSync(wf, readFileSync(join(root, 'templates/batch-branch-check.yml'), 'utf8').replace('__BRANCHES__', branches));
+  // Repos that require SHA-pinned actions reject `actions/checkout@v4` (the run dies with startup_failure): reuse the repo's own pinned line.
+  const pinned = readdirSync('.github/workflows').map((f) => readFileSync(join('.github/workflows', f), 'utf8').match(/actions\/checkout@[0-9a-f]{40}(?:\s+#\s*\S+)?/)?.[0]).find(Boolean);
+  writeFileSync(wf, readFileSync(join(root, 'templates/batch-branch-check.yml'), 'utf8').replace('__BRANCHES__', branches).replace('__CHECKOUT__', pinned || 'actions/checkout@v4'));
+  if (!pinned) console.log('  note: using actions/checkout@v4; if the repo requires SHA-pinned actions, pin it by hand');
   console.log(`create ${wf}`);
 } else console.log(`skip   ${wf} (exists)`);
 put('templates/BATCH.md', 'BATCH.md');
