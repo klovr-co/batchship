@@ -18,6 +18,8 @@ Per repo, from the repo root (needs Node and a clone of this repo, or the instal
 
     node <path-to-batchship>/scripts/init.mjs
 
+For a repo where `staging` is live and `main` is only touched by a human: `init --protected staging --manual main`.
+
 `init` writes `.batchship/` (the scripts), `.ship.json`, `BATCH.md`, a PR template, three lines in `AGENTS.md`, a git `pre-push` hook, and per-agent hook files: `.claude`-plugin hook is in the plugin, `.agents/hooks.json` (Antigravity) and `.codex/hooks.json` (Codex). It never overwrites existing files. Then run `/ship-batch setup` or edit `.ship.json` so `checks` match your CI jobs.
 
 ## How it works

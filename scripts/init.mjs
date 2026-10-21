@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// Run in the target repo: node <batchship>/scripts/init.mjs [--protected staging] [--production main]  (never overwrites existing files)
-// --protected: integration branch where batches land (default main). --production: optional release branch, takes PRs from the integration branch.
+// Run in the target repo: node <batchship>/scripts/init.mjs [--protected staging] [--manual main]  (never overwrites existing files)
+// --protected: the live branch where batches land (default main). --manual: comma list of branches only a human touches (agents may not push or PR to them).
 import { existsSync, mkdirSync, copyFileSync, appendFileSync, readFileSync, writeFileSync, chmodSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -24,7 +24,7 @@ writeFileSync('.batchship/package.json', '{"type":"module"}\n');
 
 if (!existsSync('.ship.json')) {
   const checks = detect();
-  writeFileSync('.ship.json', JSON.stringify({ ...DEFAULTS, protectedBranch: arg('protected') || DEFAULTS.protectedBranch, productionBranch: arg('production') || null, checks }, null, 2) + '\n');
+  writeFileSync('.ship.json', JSON.stringify({ ...DEFAULTS, protectedBranch: arg('protected') || DEFAULTS.protectedBranch, manualBranches: (arg('manual') || '').split(',').filter(Boolean), checks }, null, 2) + '\n');
   console.log(`create .ship.json (${checks.length} draft checks)`);
   if (!checks.length) console.log('  none detected: add checks by hand');
 } else console.log('skip   .ship.json (exists)');
@@ -33,7 +33,7 @@ put('templates/codex-hooks.json', '.codex/hooks.json'); // Codex repo hook
 const wf = '.github/workflows/batch-branch-check.yml';
 if (!existsSync(wf)) {
   const cfg = JSON.parse(readFileSync('.ship.json', 'utf8'));
-  const branches = JSON.stringify([cfg.protectedBranch, cfg.productionBranch].filter(Boolean));
+  const branches = JSON.stringify([cfg.protectedBranch]);
   mkdirSync(dirname(wf), { recursive: true });
   writeFileSync(wf, readFileSync(join(root, 'templates/batch-branch-check.yml'), 'utf8').replace('__BRANCHES__', branches));
   console.log(`create ${wf}`);

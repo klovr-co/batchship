@@ -25,13 +25,14 @@ test('agy output: deny in block mode, allow with warning otherwise', () => {
   assert.equal(formatOutput('agy', 'm', false).decision, 'allow');
 });
 
-const two = { ...DEFAULTS, protectedBranch: 'staging', productionBranch: 'main' };
-test('two-branch: batch PR to staging from ship/ with marker is allowed', () => assert.deepEqual(run('gh pr create --base staging', { config: two }), []));
-test('two-branch: PR without --base is flagged', () => assert.equal(run('gh pr create', { config: two }).length, 1));
-test('two-branch: release PR staging -> main is allowed', () => assert.deepEqual(run('gh pr create --base main', { config: two, branch: 'staging' }), []));
-test('two-branch: ship/ branch straight to main is flagged', () => assert.equal(run('gh pr create --base main', { config: two }).length, 1));
-test('two-branch: hotfix to main is allowed', () => assert.deepEqual(run('gh pr create --base main', { config: two, branch: 'hotfix/x', marker: '' }), []));
-test('two-branch: push to staging and main both flagged', () => {
-  assert.equal(run('git push origin staging', { config: two }).length, 1);
-  assert.equal(run('git push origin main', { config: two }).length, 1);
+const m = { ...DEFAULTS, protectedBranch: 'staging', manualBranches: ['main'] };
+test('manual: batch PR to staging with marker is allowed', () => assert.deepEqual(run('gh pr create --base staging', { config: m }), []));
+test('manual: PR without --base is flagged', () => assert.equal(run('gh pr create', { config: m }).length, 1));
+test('manual: any PR to main is flagged, even from staging or hotfix', () => {
+  assert.equal(run('gh pr create --base main', { config: m, branch: 'staging' }).length, 1);
+  assert.equal(run('gh pr create --base main', { config: m, branch: 'hotfix/x' }).length, 1);
+});
+test('manual: push to staging and main both flagged', () => {
+  assert.equal(run('git push origin staging', { config: m }).length, 1);
+  assert.match(run('git push origin main', { config: m })[0], /manually/);
 });

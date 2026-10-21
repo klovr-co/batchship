@@ -12,27 +12,22 @@ const isBatchBranch = (b, c) => [...c.batchPrefixes, ...c.hotfixPrefixes].some((
 export function evaluate({ command, branch, head, marker, config }) {
   const out = [];
   const prot = config.protectedBranch;
-  const prod = config.productionBranch;
-  const guarded = [prot, prod].filter(Boolean);
-  const isHotfix = (b) => config.hotfixPrefixes.some((p) => b.startsWith(p));
+  const manual = config.manualBranches || [];
   const segments = command.split(/&&|\|\||;|\n/).map((s) => s.trim());
   for (const seg of segments) {
     if (/^git\s+push\b/.test(seg)) {
-      const toGuarded = guarded.find((g) => new RegExp(`(\\s|:|\\/)${g}(\\s|$)`).test(seg) || (/^git\s+push\s*$/.test(seg) && branch === g));
-      if (toGuarded) out.push(`Do not push to ${toGuarded}. Work on ${config.batchPrefixes[0]}NAME and open a PR.`);
+      const hit = [prot, ...manual].find((g) => new RegExp(`(\\s|:|\\/)${g}(\\s|$)`).test(seg) || (/^git\s+push\s*$/.test(seg) && branch === g));
+      if (hit) out.push(manual.includes(hit) ? `${hit} is handled manually by a human; do not push to it.` : `Do not push to ${hit}. Work on ${config.batchPrefixes[0]}NAME and open a PR.`);
     }
     if (/^gh\s+pr\s+(create|ready)\b/.test(seg)) {
       const base = (seg.match(/(?:--base|-B)[=\s]+(\S+)/) || [])[1];
-      if (!base && prod) { out.push(`Pass --base explicitly (${prot} for batches, ${prod} for releases); the repo default may be ${prod}.`); continue; }
+      if (!base && manual.length) { out.push(`Pass --base ${prot} explicitly; the repo default may be ${manual.join('/')}, which is handled manually.`); continue; }
       const target = base || prot;
-      if (prod && target === prod) {
-        if (branch !== prot && !isHotfix(branch)) out.push(`PR to ${prod} is a release: it must come from ${prot} or ${config.hotfixPrefixes.join(', ')} (now: ${branch}).`);
-        continue;
-      }
+      if (manual.includes(target)) { out.push(`${target} is handled manually by a human; do not open PRs to it (use --base ${prot}).`); continue; }
       if (target !== prot) continue;
       if (!isBatchBranch(branch, config))
         out.push(`PR to ${prot} must come from ${config.batchPrefixes.join(', ')} or ${config.hotfixPrefixes.join(', ')} (now: ${branch}).`);
-      else if (!isHotfix(branch) && marker !== head)
+      else if (!config.hotfixPrefixes.some((p) => branch.startsWith(p)) && marker !== head)
         out.push('No passing batch-check for HEAD. Run: node .batchship/batch-check.mjs (see /ship-batch check).');
     }
   }

@@ -2,8 +2,8 @@ import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 
 export const DEFAULTS = {
-  protectedBranch: 'main',   // integration branch: batches land here
-  productionBranch: null,    // optional, e.g. 'main' when protectedBranch is 'staging'; takes releases from protectedBranch or hotfix/*
+  protectedBranch: 'main',   // the live/integration branch: batches land here
+  manualBranches: [],        // branches only a human touches (e.g. ['main'] when staging is the live branch): agents may not push or open PRs to them
   batchPrefixes: ['ship/'],
   hotfixPrefixes: ['hotfix/'],
   guardMode: 'warn', // 'warn' | 'block'

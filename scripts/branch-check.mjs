@@ -4,15 +4,11 @@
 import { pathToFileURL } from 'node:url';
 import { loadConfig } from './config.mjs';
 
+// Manual branches are a human's call: not checked here (the Claude/agy hooks and AGENTS.md cover agents).
 export function checkPr({ headRef, baseRef, headRepo, baseRepo, config }) {
-  const prot = config.protectedBranch;
-  const prod = config.productionBranch;
-  if (baseRef !== prot && baseRef !== prod) return null;
+  if (baseRef !== config.protectedBranch) return null;
   if (headRepo !== baseRepo) return `PR from a fork (${headRepo}) into ${baseRef}.`;
-  const hotfix = config.hotfixPrefixes.some((p) => headRef.startsWith(p));
-  if (prod && baseRef === prod)
-    return headRef === prot || hotfix ? null : `PR into ${prod} is a release: it must come from ${prot} or ${config.hotfixPrefixes.join(', ')} (head: ${headRef}).`;
-  const ok = hotfix || config.batchPrefixes.some((p) => headRef.startsWith(p));
+  const ok = [...config.batchPrefixes, ...config.hotfixPrefixes].some((p) => headRef.startsWith(p));
   return ok ? null : `PR into ${baseRef} must come from ${config.batchPrefixes.join(', ')} or ${config.hotfixPrefixes.join(', ')} (head: ${headRef}).`;
 }
 
