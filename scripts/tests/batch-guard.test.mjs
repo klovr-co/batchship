@@ -4,12 +4,12 @@ import { evaluate } from '../batch-guard.mjs';
 import { DEFAULTS } from '../config.mjs';
 
 const base = { branch: 'ship/a', head: 'abc', marker: 'abc', config: DEFAULTS };
-const run = (command, o = {}) => evaluate({ ...base, command, ...o });
+const run = (command, o = {}) => evaluate({ ...base, command: command.replace(/^gh pr create(?!.*--draft)/, 'gh pr create --draft'), ...o });
 
 test('PR from feature branch is flagged', () => assert.equal(run('gh pr create --base main', { branch: 'feature/x' }).length, 1));
 test('PR from ship/ with passing marker is allowed', () => assert.deepEqual(run('gh pr create'), []));
 test('PR from ship/ without marker is flagged', () => assert.equal(run('gh pr create', { marker: '' }).length, 1));
-test('hotfix PR needs no marker', () => assert.deepEqual(run('gh pr ready', { branch: 'hotfix/b', marker: '' }), []));
+test('hotfix PR needs no marker', () => assert.deepEqual(run('gh pr create', { branch: 'hotfix/b', marker: '' }), []));
 test('PR into ship/ branch is free', () => assert.deepEqual(run('gh pr create --base ship/a', { branch: 'feature/x' }), []));
 test('push to main is flagged', () => assert.equal(run('git push origin main').length, 1));
 test('push HEAD:main is flagged', () => assert.equal(run('git push origin HEAD:main').length, 1));
@@ -42,3 +42,9 @@ test('agent using BATCHSHIP_ALLOW or --no-verify is flagged', () => {
   assert.ok(run('BATCHSHIP_ALLOW=1 git push origin main').some((m) => /bypass/.test(m)));
   assert.ok(run('git push --no-verify origin ship/a').some((m) => /bypass/.test(m)));
 });
+
+test('agents may not mark ready or merge', () => {
+  assert.match(run('gh pr ready 12')[0], /paid step/);
+  assert.match(run('gh pr merge 12 --squash')[0], /do not merge/);
+});
+test('non-draft PR create is flagged', () => assert.ok(evaluate({ ...base, command: 'gh pr create --base main' }).some((m) => /draft/.test(m))));

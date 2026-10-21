@@ -42,10 +42,10 @@ flowchart TD
   end
 
   subgraph Pay["Paid once per batch"]
-    F -- "pass: marker written for HEAD" --> G["/ship-batch open: draft PR to main"]
-    G --> H["Mark ready: CI runs once"]
+    F -- "pass: marker written for HEAD" --> G["/ship-batch open: agent opens DRAFT PR, stops"]
+    G --> H["Human marks ready: CI runs once"]
     H -- "red" --> B
-    H -- "green" --> M["Merge, deploy, verify"]
+    H -- "green" --> M["Human merges, deploy, verify"]
   end
 
   S --> A

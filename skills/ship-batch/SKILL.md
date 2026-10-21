@@ -18,7 +18,7 @@ Stop and ask if there is no recognisable stack, no CI, several competing candida
 ## Commands
 - `start <area>`: `git fetch origin`, branch `ship/<owner>-<area>` from `origin/<protectedBranch>`, push with `-u`, add a row to the BATCH.md table (today's date).
 - `check [--quick]`: run `node .batchship/batch-check.mjs`. Fix failures locally. Do not open a PR until the full check passes on HEAD.
-- `open`: full check, then `gh pr create --draft --base <protectedBranch>`. Mark ready only when the user says so (that starts CI).
+- `open`: full check, then `gh pr create --draft --base <protectedBranch>`. Stop there and tell the user the PR is a draft. Never run `gh pr ready` or `gh pr merge`: marking ready starts the paid CI run and merging is the human's call.
 - `close`: remove the table row; record evidence (what was fixed, screenshot or test proof) in the repo's notes file.
 - `status`: list table rows whose branch has had no push for 3+ days.
 

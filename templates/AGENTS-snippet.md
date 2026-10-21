@@ -1,2 +1,2 @@
 ## Batch flow
-Read BATCH.md. Work on `ship/NAME`; never open a PR to `main` from any other branch (except `hotfix/NAME`), never push to `main`, never deploy. Run the local batch check before opening a PR.
+Read BATCH.md. Work on `ship/NAME`. Open PRs as drafts only; never mark a PR ready, never merge, never push to the live branch, never touch branches listed in `manualBranches` in `.ship.json`, never deploy. Run the local batch check before opening a PR.

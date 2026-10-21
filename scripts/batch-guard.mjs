@@ -22,7 +22,11 @@ export function evaluate({ command, branch, head, marker, config }) {
       const hit = [prot, ...manual].find((g) => new RegExp(`(\\s|:|\\/)${g}(\\s|$)`).test(seg) || (/^git\s+push\s*$/.test(seg) && branch === g));
       if (hit) out.push(manual.includes(hit) ? `${hit} is handled manually by a human; do not push to it.` : `Do not push to ${hit}. Work on ${config.batchPrefixes[0]}NAME and open a PR.`);
     }
-    if (/^gh\s+pr\s+(create|ready)\b/.test(seg)) {
+    // Marking ready and merging are the paid / release steps: human only.
+    if (/^gh\s+pr\s+ready\b/.test(seg)) out.push('Marking a PR ready starts CI (the paid step). Leave it as a draft and ask the human to mark it ready.');
+    if (/^gh\s+pr\s+merge\b/.test(seg)) out.push('Agents do not merge PRs. The human merges.');
+    if (/^gh\s+pr\s+create\b/.test(seg) && !/(--draft|\s-d)(\s|$)/.test(seg)) out.push('Open the PR as a draft (--draft); a non-draft PR starts CI immediately.');
+    if (/^gh\s+pr\s+create\b/.test(seg)) {
       const base = (seg.match(/(?:--base|-B)[=\s]+(\S+)/) || [])[1];
       if (!base && manual.length) { out.push(`Pass --base ${prot} explicitly; the repo default may be ${manual.join('/')}, which is handled manually.`); continue; }
       const target = base || prot;
