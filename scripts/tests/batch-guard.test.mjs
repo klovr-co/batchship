@@ -36,3 +36,9 @@ test('manual: push to staging and main both flagged', () => {
   assert.equal(run('git push origin staging', { config: m }).length, 1);
   assert.match(run('git push origin main', { config: m })[0], /manually/);
 });
+
+test('env-prefixed push to main is still caught', () => assert.equal(run('FOO=1 git push origin main').length, 1));
+test('agent using BATCHSHIP_ALLOW or --no-verify is flagged', () => {
+  assert.ok(run('BATCHSHIP_ALLOW=1 git push origin main').some((m) => /bypass/.test(m)));
+  assert.ok(run('git push --no-verify origin ship/a').some((m) => /bypass/.test(m)));
+});

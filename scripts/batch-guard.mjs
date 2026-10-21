@@ -14,7 +14,10 @@ export function evaluate({ command, branch, head, marker, config }) {
   const prot = config.protectedBranch;
   const manual = config.manualBranches || [];
   const segments = command.split(/&&|\|\||;|\n/).map((s) => s.trim());
-  for (const seg of segments) {
+  for (const raw of segments) {
+    const seg = raw.replace(/^(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)+/, ''); // drop leading VAR=value prefixes
+    if (/^git\s+push\b/.test(seg) && (/BATCHSHIP_ALLOW/.test(raw) || /--no-verify\b/.test(seg)))
+      out.push('Do not bypass the push guard (BATCHSHIP_ALLOW / --no-verify); that override is for a human.');
     if (/^git\s+push\b/.test(seg)) {
       const hit = [prot, ...manual].find((g) => new RegExp(`(\\s|:|\\/)${g}(\\s|$)`).test(seg) || (/^git\s+push\s*$/.test(seg) && branch === g));
       if (hit) out.push(manual.includes(hit) ? `${hit} is handled manually by a human; do not push to it.` : `Do not push to ${hit}. Work on ${config.batchPrefixes[0]}NAME and open a PR.`);

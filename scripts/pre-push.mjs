@@ -2,12 +2,13 @@
 import { readFileSync } from 'node:fs';
 import { loadConfig } from './config.mjs';
 
+if (process.env.BATCHSHIP_ALLOW === '1') process.exit(0); // human override: BATCHSHIP_ALLOW=1 git push ...
 const c = loadConfig();
 const guarded = [c.protectedBranch, ...c.manualBranches].map((b) => `refs/heads/${b}`);
 for (const line of readFileSync(0, 'utf8').split('\n').filter(Boolean)) {
   const remote = line.split(' ')[2];
   if (guarded.includes(remote)) {
-    console.error(`batchship: no direct push to ${remote.replace('refs/heads/', '')}; use ${c.batchPrefixes[0]}NAME + PR`);
+    console.error(`batchship: no direct push to ${remote.replace('refs/heads/', '')}; use ${c.batchPrefixes[0]}NAME + PR (human override: BATCHSHIP_ALLOW=1 git push ...)`);
     process.exit(1);
   }
 }

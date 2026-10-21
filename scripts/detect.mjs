@@ -7,7 +7,14 @@ const SKIP = new Set(['node_modules', '.git', '.claude', '.batchship', 'dist', '
 const has = (d, f) => existsSync(join(d, f));
 const read = (d, f) => (has(d, f) ? readFileSync(join(d, f), 'utf8') : '');
 
-export function detectDir(dir, rel) {
+export function packageManager(root) {
+  if (has(root, 'pnpm-lock.yaml')) return 'pnpm';
+  if (has(root, 'bun.lock') || has(root, 'bun.lockb')) return 'bun';
+  if (has(root, 'yarn.lock')) return 'yarn';
+  return 'npm';
+}
+
+export function detectDir(dir, rel, pm = 'npm') {
   const out = [];
   const tag = rel || 'root';
   const base = { cwd: rel || undefined, paths: rel ? [rel + '/'] : undefined };
@@ -17,7 +24,7 @@ export function detectDir(dir, rel) {
     let scripts = {};
     try { scripts = JSON.parse(read(dir, 'package.json')).scripts || {}; } catch {}
     for (const [key, quick] of [['lint', true], ['typecheck', false], ['test', false]])
-      if (scripts[key]) add(key, `npm run ${key}`, quick);
+      if (scripts[key]) add(key, `${pm} run ${key}`, quick);
   }
   const py = read(dir, 'pyproject.toml') + read(dir, 'tox.ini') + read(dir, 'setup.cfg');
   if (py || has(dir, 'requirements.txt')) {
@@ -33,11 +40,12 @@ export function detectDir(dir, rel) {
 }
 
 export function detect(root = process.cwd()) {
-  const found = detectDir(root, '');
+  const pm = packageManager(root);
+  const found = detectDir(root, '', pm);
   for (const e of readdirSync(root)) {
     if (SKIP.has(e) || e.startsWith('.')) continue;
     const p = join(root, e);
-    if (statSync(p).isDirectory()) found.push(...detectDir(p, e));
+    if (statSync(p).isDirectory()) found.push(...detectDir(p, e, pm));
   }
   return found;
 }

@@ -16,3 +16,12 @@ test('mixed python + typescript repo yields per-folder checks with cwd and paths
   assert.equal(lint.cwd, 'web'); assert.deepEqual(lint.paths, ['web/']); assert.equal(lint.quick, true);
 });
 test('empty repo yields nothing', () => assert.deepEqual(detect(mkdtempSync(join(tmpdir(), 'det-'))), []));
+
+test('uses the repo package manager (pnpm / bun) instead of npm', () => {
+  for (const [lock, pm] of [['pnpm-lock.yaml', 'pnpm'], ['bun.lock', 'bun']]) {
+    const r = mkdtempSync(join(tmpdir(), 'det-'));
+    writeFileSync(join(r, 'package.json'), JSON.stringify({ scripts: { lint: 'x' } }));
+    writeFileSync(join(r, lock), '');
+    assert.equal(detect(r)[0].cmd, `${pm} run lint`);
+  }
+});
