@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 // Ship a batch: one PR to the live branch, one CI run.
-//   ship.mjs [<batch>] [--now]
+//   ship.mjs [<batch>] [--merge]
 // Merges the live branch into the batch, runs the full check and an advisory review of the whole batch, pushes, and opens
 // (or updates) the batch PR as a draft listing every fix. Open fix PRs still aimed at the batch move to today's batch.
 // Then: review.after "human" (default) stops for the human to mark it ready and merge. review.after "merge" (from the live
-// branch's .ship.json), or --now when the user asked to ship now, marks it ready, waits for CI and merges with a merge commit.
+// branch's .ship.json), or --merge when the user asked to ship once their fixes are done, marks it ready, waits for CI and merges
+// with a merge commit.
 // Waiting for CI takes as long as the CI run: start it in the background.
 import { spawnSync } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
@@ -40,13 +41,13 @@ export function prText({ batch, live, subjects, reason, review = [] }) {
   return { title, body };
 }
 
-export function ship(cwd, wanted, { now = false }) {
+export function ship(cwd, wanted, { merge = false }) {
   const config = withLivePolicy(cwd, loadConfig(cwd));
   const live = config.protectedBranch;
   // The session that runs this must be the one where the user asked (Claude Code sets CLAUDE_CODE_SESSION_ID); a human at a terminal uses BATCHSHIP_ALLOW=1.
   const session = process.env.CLAUDE_CODE_SESSION_ID;
-  if (now && !(session && unlocked(cwd, session).size) && process.env.BATCHSHIP_ALLOW !== '1')
-    throw new Error('--now needs the user to ask for it: they say "ship now" (or "hotfix") in the session. A human at a terminal can run BATCHSHIP_ALLOW=1 ship.mjs --now.');
+  if (merge && !(session && unlocked(cwd, session).has('ship')) && process.env.BATCHSHIP_ALLOW !== '1')
+    throw new Error('--merge needs the user to ask for it in the session ("ship when done", "then ship", "ship now"). A human at a terminal can run BATCHSHIP_ALLOW=1 ship.mjs --merge.');
   const today = new Date();
   let batches = listBatches(cwd, { live, soloPaths: config.soloPaths });
   const withFixes = batches.filter((b) => b.state !== 'done' && b.commits.length);
@@ -83,7 +84,7 @@ export function ship(cwd, wanted, { now = false }) {
     const next = todayBatch(cwd, { batches, today, config }).batch;
     for (const f of open) try { sh(`gh pr edit ${f.number} --base ${next}`, cwd); moved.push(`#${f.number} -> ${next}`); } catch {}
   }
-  const auto = now || config.review.after === 'merge';
+  const auto = merge || config.review.after === 'merge';
   if (!auto) return { batch: b.name, pr, title, moved, merged: false };
   sh(`gh pr ready ${pr}`, bw);
   console.log(`\n== waiting for CI on #${pr}`);
@@ -98,7 +99,7 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   const args = process.argv.slice(2);
   const [wanted] = args.filter((a) => !a.startsWith('--'));
   try {
-    const r = ship(sh('git rev-parse --show-toplevel'), wanted, { now: args.includes('--now') });
+    const r = ship(sh('git rev-parse --show-toplevel'), wanted, { merge: args.includes('--merge') });
     if (r.local) console.log(`\nSHIPPED ${r.batch} locally (no GitHub remote): merge it into the live branch with a merge commit.`);
     else console.log([`\nBATCH PR #${r.pr}: ${r.title}`, r.moved.length && `moved open fix PRs: ${r.moved.join(', ')}`,
       r.merged ? 'CI green: merged with a merge commit.' : 'Draft: the human marks it ready (one CI run) and merges it with a merge commit.'].filter(Boolean).join('\n'));

@@ -22,7 +22,7 @@ Already working on your own branch (e.g. a T3 thread's worktree)? `node .batchsh
 - `review.after: "human"` (default): the human marks it ready (CI runs once) and merges it with a **merge commit**, so each fix stays its own commit on the live branch.
 - `review.after: "merge"`: ship.mjs marks it ready, waits for CI and merges. It takes as long as CI: run it in the background.
 
-Batches ship once a day by default. To ship sooner, the user starts a line with "ship now": then `node .batchship/ship.mjs --now` marks it ready, waits for CI and merges.
+Batches ship once a day by default. When the user asks to ship once their work is done ("... then ship when done"), finish every fix they gave in the session, check none is still open, then run `node .batchship/ship.mjs --merge` in the background: it opens the batch PR, marks it ready, waits for CI and merges it. Fixes other sessions still have open move to the next batch.
 
 ## Red CI on a batch
 1. A runner lost, a timeout, or a test that also fails on the live branch: re-run only the failed jobs (`gh run rerun <run> --failed`).
@@ -30,4 +30,4 @@ Batches ship once a day by default. To ship sooner, the user starts a line with 
 3. Fix forward with a new fix PR, or take it out: `node .batchship/fix.mjs eject <PR number>`. Then CI once more. Red again: hand it to the human.
 
 ## Hotfix (urgent production bug)
-Only when the user asks for one (a line starting "hotfix: ..."): `node .batchship/triage.mjs hotfix <name>`, fix it in that worktree, push, open a normal PR to the live branch, wait for its CI, merge. This skips the batch. The guard allows marking ready and merging only in a session where the user asked for a hotfix or to ship now.
+Only when the user asks for one (a line starting "hotfix: ..."): `node .batchship/triage.mjs hotfix <name>`, fix it in that worktree, push, open a normal PR to the live branch, wait for its CI, merge. This skips the batch. The guard allows marking ready and merging only in a session where the user asked for a hotfix.

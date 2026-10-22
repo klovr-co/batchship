@@ -46,9 +46,9 @@ flowchart TD
         FD -- "passed" --> PR["Fix PR into the batch, review posted on it, squash-merged<br/>no CI on PRs into ship/*"]
     end
     PR --> SH["ship: merge live in, full check, advisory review of the whole batch<br/>batch PR to live (draft) listing every fix PR"]
-    SH --> A{"review.after, or the user says 'ship now'"}
+    SH --> A{"review.after, or you said 'ship when done'"}
     A -- "human (default)" --> Y["You mark ready: ONE CI run, merge with a merge commit"]
-    A -- "merge / ship now" --> AU["ship.mjs marks ready, waits for CI, merges"]
+    A -- "merge / ship when done" --> AU["after your last fix: ship.mjs --merge marks ready, waits for CI, merges"]
     HF["User says 'hotfix': hotfix/NAME, normal PR to live, merge after CI"] -.-> LIVE["live branch, deploy"]
     Y --> LIVE
     AU --> LIVE
@@ -65,11 +65,15 @@ Red batch CI: re-run only the failed jobs for runner or flaky failures; for a re
 | `fix.mjs done [--title ..] [--focus ..]` | Worker | Full check, agent review, fix PR into the batch with the review on it, squash-merge |
 | `fix.mjs adopt <name>` | Worker | Make the branch you are on a fix for today's batch |
 | `triage.mjs new <name> --reason ".."` | Your thread | A separate batch, with the reason recorded in its PR |
-| `ship.mjs [<batch>] [--now]` | Your thread | The batch PR to the live branch; `--now` (when you asked) marks ready, waits for CI, merges |
+| `ship.mjs [<batch>] [--merge]` | Your thread | The batch PR to the live branch; `--merge` (when you asked to ship) marks ready, waits for CI, merges |
 | `fix.mjs eject <PR>` | Your thread | Revert one fix out of its batch |
 | `triage.mjs hotfix <name>` | Your thread | `hotfix/<name>` from the live branch: a normal PR, merged after CI, when you asked for a hotfix |
 
-In a Claude Code session, start a line of your message with `hotfix: <what is broken>` or `ship now`. A prompt hook records it for that session for two hours: "hotfix" lets the agent open, mark ready and merge a `hotfix/*` PR; "ship now" lets `ship.mjs --now` ship a batch. Talking about hotfixes or shipping does not unlock anything, and agents cannot unlock it themselves. The guard stops agents from taking these steps by mistake; it is not a security boundary.
+Batches ship once a day by default. Two ways to go faster, in a Claude Code session:
+- **Ship when done:** give your list and add "then ship when done" (or "ship after these", "ship it once they're finished"). Your thread finishes every fix, then ships the batch: ready, one CI run, merge.
+- **Hotfix:** start a line with `hotfix: <what is broken>`. The agent makes a `hotfix/*` branch from the live branch, opens a normal PR, waits for CI and merges it, skipping the batch.
+
+A prompt hook records the request for that session for two hours, and each one opens only its own path. Talking about it, asking a question about it, or quoting it does not count, and agents cannot unlock it themselves. The guard stops agents from taking these steps by mistake; it is not a security boundary.
 
 ## Settings (`.ship.json`)
 
@@ -93,7 +97,7 @@ In a Claude Code session, start a line of your message with `hotfix: <what is br
 
 | Layer | Covers |
 |---|---|
-| Plugin hooks (`hooks/hooks.json`) | Claude Code (tested): denies file edits and commits on the live or manual branches, pushes to them or straight to `ship/*`, `gh pr ready` / `gh pr merge` and non-draft PRs to the live branch (unless you said "hotfix" or "ship now" in the session), and a batch PR without a passing local check. Records "hotfix" / "ship now" from your prompt. Silent in repos without `.ship.json`; tells a repo when its scripts are older than the plugin |
+| Plugin hooks (`hooks/hooks.json`) | Claude Code (tested): denies file edits and commits on the live or manual branches, pushes to them or straight to `ship/*`, `gh pr ready` / `gh pr merge` and non-draft PRs to the live branch (unless you asked for a hotfix or to ship in the session), and a batch PR without a passing local check. Records a hotfix or ship request from your prompt. Silent in repos without `.ship.json`; tells a repo when its scripts are older than the plugin |
 | `.agents/hooks.json` | Antigravity: same guard for shell commands, agy hook protocol (unit-tested; not run inside agy). File edits are not seen |
 | `.codex/hooks.json` | Codex: same guard. **Did not fire in a live test**; rely on `AGENTS.md` and `pre-push` |
 | `.github/workflows/batch-branch-check.yml` | GitHub, any agent or person: flags a ready PR to the live branch whose head is not `ship/*` or `hotfix/*`. Starts as a warning; set `SHIP_ENFORCE` to `"1"` to fail it |

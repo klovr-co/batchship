@@ -1,6 +1,6 @@
 ---
 name: ship-batch
-description: One PR per fix, one CI run per batch. Use before changing code in a repo that has .ship.json (start a fix with fix.mjs), for /ship-batch setup|start|done|ship|hotfix|status, or before opening any PR to the protected branch.
+description: One PR per fix, one CI run per batch. Use before changing code in a repo that has .ship.json (start a fix with fix.mjs), for /ship-batch setup|start|done|ship|hotfix|status, or when the user asks to ship when done, or before opening any PR to the protected branch.
 ---
 
 Repo state lives in `.ship.json`, `BATCH.md` and `.batchship/`. If they are missing, run `init.mjs` from the repo root (it lives in the batchship plugin or clone: `scripts/init.mjs`; in Claude Code `${CLAUDE_PLUGIN_ROOT}/scripts/init.mjs`), then `setup`. If a `.batchship/` script is missing, run the plugin's copy (`${CLAUDE_PLUGIN_ROOT}/scripts/<name>`).
@@ -20,8 +20,8 @@ Stop and ask if there is no recognisable stack, no CI, several competing candida
 Follow BATCH.md; these are its steps.
 - `start <name>` (or any coding task while on the live branch): `node .batchship/fix.mjs start <name>` joins today's batch; hand the fix to a worker with the worker prompt in BATCH.md. A separate batch only for soloPaths, a full batch, or the user asking: `triage.mjs new <name> --reason "..."`.
 - `done`: in the fix worktree, `node .batchship/fix.mjs done --title "..."`. It checks, reviews, opens the fix PR into the batch and merges it. Fix what it reports and run it again.
-- `ship [<batch>]`: `node .batchship/ship.mjs` opens the batch PR to the live branch as a draft. `--now` only when the user asked to ship now.
+- `ship [<batch>]`: `node .batchship/ship.mjs` opens the batch PR to the live branch as a draft. When the user asked to ship once their fixes are done: finish all of them first, then `ship.mjs --merge` (ready, CI, merge).
 - `hotfix <name>`: only when the user asked for a hotfix: `node .batchship/triage.mjs hotfix <name>`, then a normal PR to the live branch, merged after its CI passes.
 - `status`: `node .batchship/triage.mjs list`.
 
-Never edit, commit or push on the live branch or a `manualBranches` branch, never push to `ship/*` directly, never mark ready or merge unless the user asked for a hotfix or to ship now.
+Never edit, commit or push on the live branch or a `manualBranches` branch, never push to `ship/*` directly, never mark ready or merge unless the user asked for a hotfix or to ship.

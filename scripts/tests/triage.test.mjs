@@ -36,14 +36,20 @@ test('joining: only today, not shipping, not full, not solo', () => {
   assert.match(whyNotJoinable(b(`ship/day-${day(0)}`, { solo: true }), today, cfg), /soloPaths/);
 });
 
-test('only the user\'s own words unlock hotfix and ship-now', () => {
+test('only the user\'s own words unlock hotfix and ship', () => {
   assert.deepEqual(intents('hotfix: checkout returns 500'), ['hotfix']);
   assert.deepEqual(intents('the login loop is back\nhotfix it please'), ['hotfix']);
-  assert.deepEqual(intents('ship now'), ['ship-now']);
-  assert.deepEqual(intents('ok ship the batch now'), ['ship-now']);
-  assert.deepEqual(intents('/ship-batch ship --now'), ['ship-now']);
+  assert.deepEqual(intents('fix the cart total, the welcome copy and the label, then ship when done'), ['ship']);
+  assert.deepEqual(intents('1. cart total\n2. label plural\nship it once they are all done'), ['ship']);
+  assert.deepEqual(intents('ship when everything is finished'), ['ship']);
+  assert.deepEqual(intents("1. cart total\n2. label plural\nship it once they're all done"), ['ship']);
+  assert.deepEqual(intents('do these and ship after this'), ['ship']);
+  assert.deepEqual(intents('ship now'), ['ship']);
+  assert.deepEqual(intents('/ship-batch ship --merge'), ['ship']);
   assert.deepEqual(intents('if i wanna do hotfix i still can just do it'), [], 'talking about hotfixes');
-  assert.deepEqual(intents("can we merge it now? don't wait"), [], 'a question or a mention mid-sentence');
+  assert.deepEqual(intents('if I say ship when done, will it wait?'), [], 'a question');
+  assert.deepEqual(intents('so if we say ship when done it ships the batch'), [], 'after "if"');
+  assert.deepEqual(intents('the "then ship" step should be clearer'), [], 'quoted');
   assert.deepEqual(intents('hotfix flow: how does it work?'), []);
   assert.deepEqual(intents('fix the cart total'), []);
   const repo = mkdtempSync(join(tmpdir(), 'unlock-'));
@@ -109,7 +115,7 @@ test('end to end without GitHub: today, fix start/done (reused worker), eject, s
   const hot = s('triage.mjs', 'hotfix "Checkout 500" --no-install');
   assert.match(hot, /HOTFIX hotfix\/checkout-500/);
   assert.equal(sh('git branch --show-current', hot.match(/work in: (.+)/)[1]), 'hotfix/checkout-500');
-  assert.match(fails('ship.mjs', '--now'), /needs the user to ask/);
-  grant(repo, 'other-session', ['ship-now']);
-  assert.match(fails('ship.mjs', '--now'), /needs the user to ask/, 'a grant from another session does not count');
+  assert.match(fails('ship.mjs', '--merge'), /needs the user to ask/);
+  grant(repo, 'other-session', ['ship']);
+  assert.match(fails('ship.mjs', '--merge'), /needs the user to ask/, 'a grant from another session does not count');
 });

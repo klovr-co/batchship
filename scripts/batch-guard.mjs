@@ -15,7 +15,7 @@ const triageFirst = (b, cmd) => `You are on ${b}, a live branch: do not edit or 
   + `(it joins today's batch) and work in the printed worktree. An urgent production bug the user calls a hotfix: ${cmd('triage.mjs')} hotfix <name>.`;
 
 // branchOf/headOf/markerOf(dir) read the git state of the directory a command runs in; tests may pass fixed values instead.
-// unlocked: what the user asked for in this session ('hotfix', 'ship-now'), recorded from their own prompt by intent.mjs.
+// unlocked: what the user asked for in this session ('hotfix', 'ship'), recorded from their own prompt by intent.mjs.
 // cmd(script): how to run a batchship script here (the repo's .batchship copy, or the plugin's when the repo has none yet).
 export function evaluate({ command = '', filePath, cwd = '.', branch, branchOf = () => branch, head, headOf = () => head, marker, markerOf = () => marker,
   config, unlocked = new Set(), cmd = (f) => `node .batchship/${f}` }) {
@@ -25,7 +25,7 @@ export function evaluate({ command = '', filePath, cwd = '.', branch, branchOf =
   const live = [prot, ...manual];
   const isShip = (b) => config.batchPrefixes.some((p) => b.startsWith(p));
   if (filePath) {
-    if (/batchship-unlock/.test(filePath)) return ['Only the user unlocks hotfix / ship-now, by asking for it in the session.'];
+    if (/batchship-unlock/.test(filePath)) return ['Only the user unlocks hotfix / ship, by asking for it in the session.'];
     const b = branchOf(dirname(filePath));
     return live.includes(b) ? [triageFirst(b, cmd)] : [];
   }
@@ -36,7 +36,7 @@ export function evaluate({ command = '', filePath, cwd = '.', branch, branchOf =
     const x = p.replace(/\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?/g, (m, v) => vars[v] ?? m);
     return dir && !/[$`*]/.test(x) ? resolve(dir, x) : null;
   };
-  if (/batchship-un|\bnode\b[^|;&\n]*\bintent\.mjs\b|\|\s*node\b[^|;&\n]*intent\.mjs/.test(command)) out.push('Only the user unlocks hotfix / ship-now, by asking for it in the session.');
+  if (/batchship-un|\bnode\b[^|;&\n]*\bintent\.mjs\b|\|\s*node\b[^|;&\n]*intent\.mjs/.test(command)) out.push('Only the user unlocks hotfix / ship, by asking for it in the session.');
   const segments = command.split(/&&|\|\||;|\n/).map((s) => s.trim().replace(/^[({]\s*/, ''));
   for (const raw of segments) {
     const assign = raw.match(/^([A-Za-z_][A-Za-z0-9_]*)=("[^"]*"|'[^']*'|\S*)$/);
@@ -62,15 +62,15 @@ export function evaluate({ command = '', filePath, cwd = '.', branch, branchOf =
         out.push(`Batch branches change only through ${cmd('fix.mjs')} done and ${cmd('ship.mjs')}; push your fix branch instead.`);
     }
     if (/review\.mjs\b.*--force\b/.test(seg)) out.push('Only the human re-opens review (--force). Stop and hand the fix over with the open findings.');
-    // Each unlock opens only its own path: "hotfix" for hotfix/* branches, "ship now" for batches.
-    const may = (b) => (b && config.hotfixPrefixes.some((p) => b.startsWith(p)) ? unlocked.has('hotfix') : b && isShip(b) ? unlocked.has('ship-now') : false);
-    if (/ship\.mjs\b.*--now\b/.test(seg) && !unlocked.has('ship-now')) out.push('ship.mjs --now needs the user to ask for it ("ship now" or "hotfix"). Otherwise ship.mjs opens the batch PR as a draft for the human.');
-    // Marking ready and merging are the human's, unless the user asked for a hotfix or to ship now in this session.
+    // Each unlock opens only its own path: "hotfix" for hotfix/* branches, "ship" for batches.
+    const may = (b) => (b && config.hotfixPrefixes.some((p) => b.startsWith(p)) ? unlocked.has('hotfix') : b && isShip(b) ? unlocked.has('ship') : false);
+    if (/ship\.mjs\b.*--merge\b/.test(seg) && !unlocked.has('ship')) out.push('ship.mjs --merge needs the user to ask for it ("ship when done", "then ship"). Otherwise ship.mjs opens the batch PR as a draft for the human.');
+    // Marking ready and merging are the human's, unless the user asked for a hotfix or to ship in this session.
     const act = /^gh\s+pr\s+(ready|merge)\b/.exec(seg)?.[1];
     if (act && /--admin\b/.test(seg)) out.push('Do not use --admin: merge only through the normal checks.');
     else if (act && !may(branch)) out.push(unlocked.size ? `With "${[...unlocked].join('", "')}" from the user, gh pr ${act} works only from the ${unlocked.has('hotfix') ? 'hotfix' : 'batch'} worktree it is for (here: ${branch || 'unknown'}).` : act === 'ready'
-      ? 'Marking a PR ready starts CI (the paid step): leave it to the human, unless they say "hotfix" or "ship now". Batches ship with ship.mjs.'
-      : 'Merging is the human\'s, unless they say "hotfix" or "ship now". Fixes merge into batches through fix.mjs done.');
+      ? 'Marking a PR ready starts CI (the paid step): leave it to the human, unless they ask for a hotfix or to ship. Batches ship with ship.mjs.'
+      : 'Merging is the human\'s, unless they ask for a hotfix or to ship. Fixes merge into batches through fix.mjs done.');
     if (/^gh\s+pr\s+create\b/.test(seg)) {
       const base = (seg.match(/(?:--base|-B)[=\s]+(\S+)/) || [])[1];
       if (base && isShip(base)) continue; // a fix PR into a batch: no CI on ship/*

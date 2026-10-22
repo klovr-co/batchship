@@ -71,16 +71,26 @@ export function unfilteredPrWorkflows(cwd) {
 }
 
 // What the user explicitly asked for in a session, recorded by the prompt hook (intent.mjs) and read by the guard and ship.mjs.
-// "hotfix": a hotfix/* PR may be opened ready, marked ready and merged. "ship-now": a batch may ship without waiting for the day.
+// "hotfix": a hotfix/* PR may be opened ready, marked ready and merged.
+// "ship": once every fix the user gave in the session is done, the batch ships (ready, CI, merge) without waiting for the day.
 export const UNLOCK_MS = 2 * 3600_000;
-// Only an explicit request at the start of a line counts, so talking about hotfixes or shipping does not unlock anything:
-//   "hotfix: checkout returns 500", "hotfix the login loop", "/ship-batch hotfix ..."   -> hotfix
-//   "ship now", "ship it now", "ship the batch now", "/ship-batch ship --now"          -> ship-now
+// Only an explicit request counts, so talking about hotfixes or shipping does not unlock anything:
+//   a line starting "hotfix: checkout returns 500", "hotfix the login loop", "/ship-batch hotfix ..."   -> hotfix
+//   "... and ship when done", "ship it once they're finished", "then ship", "ship after these",
+//   "ship at the end", "ship now", "/ship-batch ship --merge"                                        -> ship
+// Not when the line is a question, or the phrase is quoted or follows "if" / "say".
+const SHIP = /\b(?:then\s+ship\b(?!\s+(?:flow|design|step|script))|ship(?:\s+(?:it|them|everything|all|these|this|the\s+batch|today'?s\s+batch))?\s+(?:(?:when|once|after)\s+(?:(?:it|they|everything|all|the\s+list|this|these|those|we)(?:'?s|'?re|\s+is|\s+are)?\s+)?(?:all\s+)?(?:done|finished|complete|completed)\b|after\s+(?:this|these|that|them|it|the\s+list|everything)\b|at\s+the\s+end\b|now\b))/i;
 export function intents(prompt = '') {
-  const ls = String(prompt).split('\n').map((l) => l.trim().replace(/^(please|pls|ok|okay|go|now)[,:]?\s+/i, ''));
+  const ls = String(prompt).split('\n').map((l) => l.trim().replace(/^(please|pls|ok|okay|go|now|and)[,:]?\s+/i, ''));
+  const asked = (l) => !/\?\s*$/.test(l);
   const kinds = [];
-  if (ls.some((l) => /^(\/\S*ship-batch\s+)?hot[\s-]?fix\b(?!\s+(design|flow|path|mode|process|rule))/i.test(l) && !/\?\s*$/.test(l))) kinds.push('hotfix');
-  if (ls.some((l) => /^(\/\S*ship-batch\s+ship\b.*--now\b|ship(\s+it|\s+(the|today'?s)\s+batch)?\s+now\b)/i.test(l) && !/\?\s*$/.test(l))) kinds.push('ship-now');
+  if (ls.some((l) => asked(l) && /^(\/\S*ship-batch\s+)?hot[\s-]?fix\b(?!\s+(design|flow|path|mode|process|rule))/i.test(l))) kinds.push('hotfix');
+  if (ls.some((l) => {
+    if (!asked(l)) return false;
+    if (/^\/\S*ship-batch\s+ship\b.*--merge\b/i.test(l)) return true;
+    const m = SHIP.exec(l);
+    return m && !/\b(if|say|says|said|saying|type|types)\b|["'`“]\s*$/i.test(l.slice(0, m.index));
+  })) kinds.push('ship');
   return kinds;
 }
 export const unlockFile = (cwd) => join(resolve(cwd, sh('git rev-parse --git-common-dir', cwd)), 'batchship-unlock.json');
