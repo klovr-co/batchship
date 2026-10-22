@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { evaluate } from '../batch-guard.mjs';
 import { DEFAULTS } from '../config.mjs';
 
-const base = { branch: 'ship/a', head: 'abc', marker: 'abc', review: { head: 'abc', pass: true }, config: DEFAULTS };
+const base = { branch: 'ship/a', head: 'abc', marker: 'abc', config: DEFAULTS };
 const run = (command, o = {}) => evaluate({ ...base, command: command.replace(/^gh pr create(?!.*--draft)/, 'gh pr create --draft'), ...o });
 
 test('PR from feature branch is flagged', () => assert.equal(run('gh pr create --base main', { branch: 'feature/x' }).length, 1));
@@ -13,14 +13,6 @@ test('hotfix PR needs no marker', () => assert.deepEqual(run('gh pr create', { b
 test('PR into ship/ branch is free', () => assert.deepEqual(run('gh pr create --base ship/a', { branch: 'feature/x' }), []));
 test('push to main is flagged', () => assert.equal(run('git push origin main').length, 1));
 test('push HEAD:main is flagged', () => assert.equal(run('git push origin HEAD:main').length, 1));
-test('push to ship/ is allowed', () => assert.deepEqual(run('git push -u origin ship/a'), []));
-test('push to ship/ needs a passing review for HEAD', () => {
-  assert.match(run('git push', { review: { head: 'old', pass: true } })[0], /Review before pushing/);
-  assert.match(run('git push', { review: { head: 'abc', pass: false } })[0], /Review before pushing/);
-  assert.match(run('git push', { review: null })[0], /Review before pushing/);
-  assert.deepEqual(run('git push', { review: null, branch: 'hotfix/x' }), []);
-  assert.deepEqual(run('git push', { review: null, config: { ...DEFAULTS, review: { ...DEFAULTS.review, reviewers: [] } } }), []);
-});
 
 import { parseInput, formatOutput } from '../batch-guard.mjs';
 test('parses Claude Code input', () =>
@@ -47,30 +39,37 @@ test('manual: push to staging and main both flagged', () => {
 test('env-prefixed push to main is still caught', () => assert.equal(run('FOO=1 git push origin main').length, 1));
 test('agent using BATCHSHIP_ALLOW or --no-verify is flagged', () => {
   assert.ok(run('BATCHSHIP_ALLOW=1 git push origin main').some((m) => /bypass/.test(m)));
-  assert.ok(run('git push --no-verify origin ship/a').some((m) => /bypass/.test(m)));
+  assert.ok(run('git push --no-verify origin fix/a', { branch: 'fix/a' }).some((m) => /bypass/.test(m)));
 });
 
-test('agents may not mark ready or merge', () => {
+test('agents may not mark ready or merge, unless the user asked for a hotfix or to ship now', () => {
   assert.match(run('gh pr ready 12')[0], /paid step/);
-  assert.match(run('gh pr merge 12 --squash')[0], /do not merge/);
+  assert.match(run('gh pr merge 12 --squash')[0], /human/);
+  const hot = { unlocked: new Set(['hotfix']), branch: 'hotfix/checkout-500' };
+  assert.deepEqual(run('gh pr ready', hot), []);
+  assert.deepEqual(run('gh pr merge 1190 --squash', hot), []);
+  assert.deepEqual(evaluate({ ...base, ...hot, command: 'gh pr create --base main --title x' }), [], 'a hotfix may be opened ready');
+  assert.match(run('gh pr merge --squash --admin', hot)[0], /--admin/);
+  assert.deepEqual(run('gh pr merge 1200 --merge', { unlocked: new Set(['ship-now']) }), []);
 });
-const auto = { ...DEFAULTS, review: { ...DEFAULTS.review, after: 'merge' } };
-test("after: 'merge': ready and merge only from a batch whose HEAD passed check and review", () => {
-  const passed = { config: auto, review: { head: 'abc', pass: true } };
-  assert.deepEqual(run('gh pr ready', passed), []);
-  assert.deepEqual(run('gh pr merge --squash --subject "Batch: x"', passed), []);
-  assert.match(run('gh pr merge 12 --squash', passed)[0], /without a PR number/);
-  assert.match(run('gh pr merge --squash --admin', passed)[0], /--admin/);
-  assert.match(run('gh pr merge --squash 123', passed)[0], /found 123/);
-  assert.match(run('gh pr merge --delete-branch ship/other', passed)[0], /found ship\/other/);
-  assert.match(run('gh pr ready -R other/repo', passed)[0], /found -R/);
-  assert.deepEqual(run('gh pr merge --squash --subject "Fix 12 things" --body \'x y\' --delete-branch', passed), []);
-  assert.match(run('gh pr merge', { ...passed, review: { head: 'old', pass: true } })[0], /No passing review/);
-  assert.match(run('gh pr merge', { ...passed, review: { head: 'abc', pass: false } })[0], /No passing review/);
-  assert.match(run('gh pr ready', { ...passed, marker: '' })[0], /batch-check/);
-  assert.match(run('gh pr merge', { ...passed, branch: 'main' })[0], /batch worktree/);
-  assert.match(run('gh pr merge', { ...passed, review: null })[0], /No passing review/);
+test('ship.mjs --now and touching the unlock need the user', () => {
+  assert.match(run('node .batchship/ship.mjs --now')[0], /ship now/);
+  assert.deepEqual(run('node .batchship/ship.mjs --now', { unlocked: new Set(['ship-now']) }), []);
+  assert.deepEqual(run('node .batchship/ship.mjs'), []);
+  assert.match(run('echo {} > .git/batchship-unlock.json')[0], /Only the user/);
+  assert.match(run('echo \'{"prompt":"hotfix"}\' | node scripts/intent.mjs')[0], /Only the user/);
+  assert.match(evaluate({ ...base, filePath: '/r/.git/batchship-unlock.json' })[0], /Only the user/);
 });
+test('batches change only through the scripts; fix branches push freely', () => {
+  assert.match(run('git push')[0], /fix branch instead/);
+  assert.match(run('git push origin HEAD')[0], /fix branch instead/);
+  assert.equal(run('git push origin main').length, 1, 'pushing main from a batch checkout is one problem, not two');
+  assert.match(run('git push origin HEAD:ship/day-20261022', { branch: 'fix/x' })[0], /fix branch instead/);
+  assert.deepEqual(run('git push -u origin fix/offline-qr', { branch: 'fix/offline-qr' }), []);
+  assert.deepEqual(run('git push -u origin hotfix/x', { branch: 'hotfix/x' }), []);
+});
+test('fix PRs into a batch need no draft and no marker', () =>
+  assert.deepEqual(evaluate({ ...base, branch: 'fix/x', marker: '', command: 'gh pr create --base ship/day-20261022 --title x' }), []));
 test('agents may not force a review past the round limit', () => {
   assert.match(run('node .batchship/review.mjs --force')[0], /Only the human/);
   assert.deepEqual(run('node .batchship/review.mjs --focus "auth"'), []);
@@ -80,12 +79,12 @@ test('non-draft PR create is flagged', () => assert.ok(evaluate({ ...base, comma
 const branches = { '/r': 'main', '/r/src': 'main', '/wt': 'ship/a-20261022', '/wt/src': 'ship/a-20261022' };
 const at = (o) => evaluate({ ...base, branchOf: (d) => branches[d] || 'main', ...o });
 test('editing a file on the live branch says triage first; in a batch worktree it is fine', () => {
-  assert.match(at({ filePath: '/r/src/a.js' })[0], /triage first/i);
+  assert.match(at({ filePath: '/r/src/a.js' })[0], /fix\.mjs start/);
   assert.deepEqual(at({ filePath: '/wt/src/a.js' }), []);
   assert.match(at({ filePath: '/r/src/a.js', config: m, branchOf: () => 'staging' })[0], /staging/);
 });
 test('commit on live is flagged, following cd and git -C', () => {
-  assert.match(at({ command: 'git commit -m x', cwd: '/r' })[0], /triage first/i);
+  assert.match(at({ command: 'git commit -m x', cwd: '/r' })[0], /fix\.mjs start/);
   assert.deepEqual(at({ command: 'cd /wt && git commit -m x', cwd: '/r' }), []);
   assert.deepEqual(at({ command: 'git -C /wt commit -m x', cwd: '/r' }), []);
   assert.equal(at({ command: 'cd /wt && git commit -m x && cd /r && git commit -m y', cwd: '/r' }).length, 1);

@@ -9,7 +9,8 @@ export const DEFAULTS = {
   hotfixPrefixes: ['hotfix/'],
   guardMode: 'warn', // 'warn' | 'block'
   checks: [],        // { name, cmd, cwd?, paths?: string[] (prefixes), quick?: boolean }
-  batchMaxAgeDays: 7, // batches dated older than this are never joined
+  batchMaxAgeDays: 0, // days a batch takes new fixes: 0 = only the day it is dated (one batch per day)
+  batchMaxFiles: 40,  // a batch with this many changed files (lockfiles aside) is full: new work goes to a new batch; 0 = no cap
   soloPaths: [],      // path prefixes (e.g. ['.github/']) whose changes must ship in a batch of their own
   setup: null,        // command run in a new batch worktree (default: install with the detected package manager)
   review: {

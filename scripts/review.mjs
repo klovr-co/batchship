@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-// Code review by agents of each fix as it lands on a batch, run in the batch worktree after committing and before pushing. Reviewers come from review.reviewers in .ship.json:
+// Code review by agents of each fix before it lands on a batch (fix.mjs done runs it), and an advisory review of the whole batch (ship.mjs). Reviewers come from review.reviewers in .ship.json:
 // "same" (the harness running this), "claude", "codex", "agy", each optionally ":model", or { "name", "cmd" } for any command
 // that reads the prompt on stdin and prints the JSON verdict. They run in parallel and read only.
-// Usage: review.mjs [--focus "what to look at hardest"] [--force: the human re-opens review after the round limit]   Writes batchship-review.json in the worktree's git dir; exit 0 = approved, 1 = changes, 2 = could not run.
+// Usage: review.mjs [--base <ref>] [--focus "..."] [--advisory] [--out <file>] [--force: the human re-opens review after the round limit]   Writes batchship-review.json in the worktree's git dir; exit 0 = approved, 1 = changes, 2 = could not run.
 import { execSync, spawn } from 'node:child_process';
 import { readFileSync, writeFileSync, existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -74,12 +74,14 @@ export function extractVerdict(text) {
 export const blocking = (findings) => findings.filter((f) => f.severity === 'blocker' || f.severity === 'major');
 
 // The reviewers get the commits, not git: inline when small, else in a file they read. Headless agy cannot run commands at all.
-export function buildPrompt({ branch, live, focus, patch = '', patchFile, maxDiff = 100000 }) {
+export function buildPrompt({ branch, live, focus, patch = '', patchFile, maxDiff = 100000, whole = false }) {
   return [
-    `Review the new commits on batch branch ${branch}: fixes landing on this temporary integration branch, which later merges into ${live}. You are a reviewer: read only. Do not run shell commands, edit files, commit, push, or comment on GitHub; use your file reading and search tools.`,
+    whole
+      ? `Review the whole batch ${branch} before it merges into ${live}. Each fix in it was already reviewed on its own, so look at how the fixes interact and at merge conflict resolutions. You are a reviewer: read only. Do not run shell commands, edit files, commit, push, or comment on GitHub; use your file reading and search tools.`
+      : `Review the new commits on ${branch}: a fix landing on a temporary integration branch, which later merges into ${live}. You are a reviewer: read only. Do not run shell commands, edit files, commit, push, or comment on GitHub; use your file reading and search tools.`,
     patch.length <= maxDiff
-      ? `The commits are below. Read the surrounding code in the repo as needed.\n\n<commits>\n${patch}\n</commits>`
-      : `The commits are in ${patchFile} (read it in parts). Read the surrounding code in the repo as needed.`,
+      ? `The ${whole ? 'diff' : 'commits'} ${whole ? 'is' : 'are'} below. Read the surrounding code in the repo as needed.\n\n<commits>\n${patch}\n</commits>`
+      : `The ${whole ? 'diff is' : 'commits are'} in ${patchFile} (read it in parts). Read the surrounding code in the repo as needed.`,
     'Look for correctness bugs, security problems (who can trigger what, data or account leaks, secrets in logs or stored messages), data loss, unsafe migrations, and risky logic without tests. Ignore style and formatting.',
     focus ? `Look hardest at: ${focus}` : '',
     'Severity: blocker = must not ship; major = fix before it lands; minor = worth fixing, not required. Only report what you can point to in the code.',
@@ -125,8 +127,10 @@ const git = (a) => execSync(`git ${a}`, { encoding: 'utf8', stdio: ['ignore', 'p
 const tryGit = (a) => { try { return git(a); } catch { return ''; } };
 const readJson = (p) => { try { return JSON.parse(readFileSync(p, 'utf8')); } catch { return null; } };
 
-// Reviews what landed on the batch since its last passing review (first time: since it left the live branch).
-// Commits that only merge the live branch in carry nothing new, so they pass without a reviewer.
+// Reviews the commits since the last passing review on this branch (first time: since it left --base, default the live branch).
+// Commits that only merge another branch in carry nothing new, so they pass without a reviewer.
+// --advisory: one review of the whole diff against --base (merge resolutions included); reports, never blocks, keeps no rounds.
+// --out <file>: also write the results as JSON (ship.mjs puts them in the batch PR).
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   const top = git('rev-parse --show-toplevel');
   tryGit(`fetch -q origin ${loadConfig(top).protectedBranch}`); // fresh live policy and base
@@ -139,13 +143,35 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   const head = git('rev-parse HEAD');
   const markerPath = git('rev-parse --git-path batchship-review.json');
   const prev = readJson(markerPath)?.branch === branch ? readJson(markerPath) : null;
-  if (!reviewers?.length) { console.log('review.reviewers is empty in .ship.json: review is off.'); process.exit(0); }
+  const baseRef = arg('base') || `origin/${live}`;
+  const outFile = arg('out');
+  const show = (results) => {
+    if (outFile) writeFileSync(outFile, JSON.stringify(results, null, 2));
+    for (const r of results) {
+      console.log(`\n## ${r.name}: ${r.ok ? `${r.verdict}. ${r.summary}` : `FAILED TO RUN: ${r.error}`}`);
+      for (const f of r.findings || []) console.log(`- [${f.severity}] ${f.file}${f.line ? `:${f.line}` : ''}: ${f.summary}`);
+    }
+  };
+  if (!reviewers?.length) { if (outFile) writeFileSync(outFile, '[]'); console.log('review.reviewers is empty in .ship.json: review is off.'); process.exit(0); }
+  for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { stopAll(); process.exit(130); });
+  if (process.argv.includes('--advisory')) {
+    let parsed;
+    try { parsed = reviewers.map((r) => parseReviewer(r)); } catch (e) { console.error(e.message); process.exit(2); }
+    const patch = git(`diff ${baseRef}...HEAD`);
+    if (!patch) { if (outFile) writeFileSync(outFile, '[]'); console.log('Nothing to review.'); process.exit(0); }
+    const patchFile = resolve(git('rev-parse --git-path batchship-review.patch'));
+    writeFileSync(patchFile, patch);
+    const prompt = buildPrompt({ branch, live, patch, patchFile, whole: true, focus: [baseFocus, arg('focus')].filter(Boolean).join(' ') });
+    console.log(`Advisory review of the whole ${branch} with ${parsed.map((r) => r.name).join(', ')} ...`);
+    show(await Promise.all(parsed.map((r) => run(r, prompt, process.cwd(), timeoutMinutes * 60000, dirname(patchFile)))));
+    process.exit(0);
+  }
   if (prev?.head === head && prev.pass && !force) { console.log(`Review already passed for ${head.slice(0, 8)}.`); process.exit(0); }
   const base = (prev?.passed && tryGit(`merge-base --is-ancestor ${prev.passed} HEAD && echo y`) === 'y' && prev.passed)
-    || tryGit(`merge-base HEAD origin/${live}`) || tryGit(`merge-base HEAD ${live}`);
+    || tryGit(`merge-base HEAD ${baseRef}`) || tryGit(`merge-base HEAD ${live}`);
   const range = base ? `${base}..HEAD` : 'HEAD';
   const save = (pass, failures, results = []) => writeFileSync(markerPath, JSON.stringify({ branch, head, pass, passed: pass ? head : prev?.passed || '', failures, from: base, at: new Date().toISOString(), results }, null, 2) + '\n');
-  if (!git(`rev-list --first-parent --no-merges ${range}`)) { save(true, 0); console.log('Nothing new to review since the last passing review (merges of the live branch only).'); process.exit(0); }
+  if (!git(`rev-list --first-parent --no-merges ${range}`)) { save(true, 0); console.log('Nothing new to review since the last passing review (merges only).'); process.exit(0); }
   const failures = prev?.failures || 0;
   if (failures >= rounds && prev.head !== head && !force) {
     console.error(`Review failed ${failures} times since the last pass (review.rounds is ${rounds}). Stop and hand the batch to the human with the open findings.`); process.exit(1);
@@ -158,7 +184,6 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   const prompt = buildPrompt({ branch, live, patch, patchFile, focus: [baseFocus, arg('focus')].filter(Boolean).join(' ') });
   const count = git(`rev-list --count --first-parent --no-merges ${range}`);
   console.log(`Reviewing ${count} new commit(s) on ${branch} with ${parsed.map((r) => r.name).join(', ')} ...`);
-  for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { stopAll(); process.exit(130); });
   const results = await Promise.all(parsed.map((r) => run(r, prompt, process.cwd(), timeoutMinutes * 60000, dirname(patchFile))));
   const failed = results.filter((r) => !r.ok);
   const open = results.filter((r) => r.ok).flatMap((r) => blocking(r.findings));
@@ -166,12 +191,9 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   // A reviewer that could not run does not use up a round; a re-run on the same HEAD does not either.
   const used = pass ? 0 : failed.length || prev?.head === head ? failures : failures + 1;
   save(pass, used, results);
-  for (const r of results) {
-    console.log(`\n## ${r.name}: ${r.ok ? `${r.verdict}. ${r.summary}` : `FAILED TO RUN: ${r.error}`}`);
-    for (const f of r.findings || []) console.log(`- [${f.severity}] ${f.file}${f.line ? `:${f.line}` : ''}: ${f.summary}`);
-  }
-  if (pass) console.log('\nReview passed. You may push.');
+  show(results);
+  if (pass) console.log('\nReview passed.');
   else if (failed.length) console.log(`\nReview could not finish: ${failed.map((r) => r.name).join(', ')} did not run. Fix the reviewer or review.reviewers, then re-run.`);
-  else console.log(`\nReview: ${open.length} blocker/major finding(s), failed review ${used} of ${rounds}. Fix them, commit, then re-run this before pushing. A finding you disagree with: leave it, say why in the PR, and let the human decide.`);
+  else console.log(`\nReview: ${open.length} blocker/major finding(s), failed review ${used} of ${rounds}. Fix them, commit, and run it again. A finding you disagree with: leave it, say why in the PR, and let the human decide.`);
   process.exit(pass ? 0 : failed.length ? 2 : 1);
 }
