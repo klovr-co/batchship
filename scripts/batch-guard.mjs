@@ -5,7 +5,7 @@ import { execSync } from 'node:child_process';
 import { readFileSync, existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { findRoot, loadConfig } from './config.mjs';
+import { findRoot, loadConfig, withLivePolicy } from './config.mjs';
 
 const isBatchBranch = (b, c) => [...c.batchPrefixes, ...c.hotfixPrefixes].some((p) => b.startsWith(p));
 
@@ -47,6 +47,7 @@ export function evaluate({ command = '', filePath, cwd = '.', branch, branchOf =
       const hit = [prot, ...manual].find((g) => new RegExp(`(\\s|:|\\/)${g}(\\s|$)`).test(seg) || (/^git\s+push\s*$/.test(seg) && branch === g));
       if (hit) out.push(manual.includes(hit) ? `${hit} is handled manually by a human; do not push to it.` : `Do not push to ${hit}. Work on ${config.batchPrefixes[0]}NAME and open a PR.`);
     }
+    if (/review\.mjs\b.*--force\b/.test(seg)) out.push('Only the human re-opens review (--force). Stop and hand the batch over with the open findings.');
     // Each fix is reviewed as it lands on the batch: pushing a batch branch needs a passing review for HEAD.
     if (/^git\s+push\b/.test(seg) && known && config.review?.reviewers?.length && config.batchPrefixes.some((p) => branch.startsWith(p))) {
       const r = reviewOf(segDir);
@@ -57,7 +58,10 @@ export function evaluate({ command = '', filePath, cwd = '.', branch, branchOf =
     if (ship && config.review?.after === 'merge') {
       const h = segDir ? headOf(segDir) : '';
       const r = segDir ? reviewOf(segDir) : null;
-      if (!known || !isBatchBranch(branch, config)) out.push(`Run gh pr ${ship} from inside the batch worktree (${config.batchPrefixes[0]}*), so the guard can see its review.`);
+      const target = seg.replace(/^gh\s+pr\s+\S+\s*/, '').split(/\s+/)[0];
+      if (/--admin\b/.test(seg)) out.push('Do not use --admin: merge only through the normal checks.');
+      else if (target && !target.startsWith('-')) out.push(`Run gh pr ${ship} without a PR number or branch, from inside the batch worktree, so it acts on that batch's own PR.`);
+      else if (!known || !isBatchBranch(branch, config)) out.push(`Run gh pr ${ship} from inside the batch worktree (${config.batchPrefixes[0]}*), so the guard can see its review.`);
       else if (markerOf(segDir) !== h) out.push('No passing batch-check for HEAD. Run: node .batchship/batch-check.mjs');
       else if (!(r?.pass && r.head === h)) out.push('No passing review for HEAD. Run: node .batchship/review.mjs, fix blocker/major findings, then retry.');
     } else if (ship === 'ready') out.push('Marking a PR ready starts CI (the paid step). Leave it as a draft and ask the human to mark it ready.');
@@ -109,7 +113,8 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   const { agent, command, cwd, filePath } = parseInput(input);
   const root = findRoot(existing(filePath ? dirname(filePath) : cwd));
   if (!root) { if (agent === 'agy') console.log(JSON.stringify({ decision: 'allow' })); process.exit(0); }
-  const config = loadConfig(root);
+  // Push, PR and review rules use the live branch's policy; the batch's own .ship.json could have switched them off.
+  const config = /\bgit\b[\s\S]*\bpush\b|\bgh\s+pr\b|review\.mjs/.test(command) ? withLivePolicy(root, loadConfig(root)) : loadConfig(root);
   const branchOf = (d) => git('rev-parse --abbrev-ref HEAD', existing(d));
   const headOf = (d) => git('rev-parse HEAD', existing(d));
   const markerOf = (d) => {

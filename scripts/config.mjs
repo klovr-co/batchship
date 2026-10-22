@@ -1,4 +1,5 @@
 import { readFileSync, existsSync } from 'node:fs';
+import { execSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
 
 export const DEFAULTS = {
@@ -33,4 +34,12 @@ export function loadConfig(dir = process.cwd()) {
   if (!existsSync(file)) return { ...DEFAULTS, review: { ...DEFAULTS.review } };
   const own = JSON.parse(readFileSync(file, 'utf8'));
   return { ...DEFAULTS, ...own, review: { ...DEFAULTS.review, ...own.review } };
+}
+
+// Review settings and guardMode come from the live branch's .ship.json, so a batch cannot switch its own review or guard off.
+// Falls back to the local file when the live branch has none yet (the batch that installs batchship).
+export function withLivePolicy(dir, config) {
+  let live;
+  try { live = JSON.parse(execSync(`git show origin/${config.protectedBranch}:.ship.json`, { cwd: dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })); } catch { return config; }
+  return { ...config, guardMode: live.guardMode ?? DEFAULTS.guardMode, review: { ...DEFAULTS.review, ...live.review } };
 }

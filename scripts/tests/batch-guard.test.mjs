@@ -57,13 +57,19 @@ test('agents may not mark ready or merge', () => {
 const auto = { ...DEFAULTS, review: { ...DEFAULTS.review, after: 'merge' } };
 test("after: 'merge': ready and merge only from a batch whose HEAD passed check and review", () => {
   const passed = { config: auto, review: { head: 'abc', pass: true } };
-  assert.deepEqual(run('gh pr ready 12', passed), []);
-  assert.deepEqual(run('gh pr merge 12 --squash', passed), []);
-  assert.match(run('gh pr merge 12', { ...passed, review: { head: 'old', pass: true } })[0], /No passing review/);
-  assert.match(run('gh pr merge 12', { ...passed, review: { head: 'abc', pass: false } })[0], /No passing review/);
-  assert.match(run('gh pr ready 12', { ...passed, marker: '' })[0], /batch-check/);
-  assert.match(run('gh pr merge 12', { ...passed, branch: 'main' })[0], /batch worktree/);
-  assert.match(run('gh pr merge 12', { ...passed, review: null })[0], /No passing review/);
+  assert.deepEqual(run('gh pr ready', passed), []);
+  assert.deepEqual(run('gh pr merge --squash --subject "Batch: x"', passed), []);
+  assert.match(run('gh pr merge 12 --squash', passed)[0], /without a PR number/);
+  assert.match(run('gh pr merge --squash --admin', passed)[0], /--admin/);
+  assert.match(run('gh pr merge', { ...passed, review: { head: 'old', pass: true } })[0], /No passing review/);
+  assert.match(run('gh pr merge', { ...passed, review: { head: 'abc', pass: false } })[0], /No passing review/);
+  assert.match(run('gh pr ready', { ...passed, marker: '' })[0], /batch-check/);
+  assert.match(run('gh pr merge', { ...passed, branch: 'main' })[0], /batch worktree/);
+  assert.match(run('gh pr merge', { ...passed, review: null })[0], /No passing review/);
+});
+test('agents may not force a review past the round limit', () => {
+  assert.match(run('node .batchship/review.mjs --force')[0], /Only the human/);
+  assert.deepEqual(run('node .batchship/review.mjs --focus "auth"'), []);
 });
 test('non-draft PR create is flagged', () => assert.ok(evaluate({ ...base, command: 'gh pr create --base main' }).some((m) => /draft/.test(m))));
 

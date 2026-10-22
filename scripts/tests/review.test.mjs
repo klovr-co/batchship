@@ -24,7 +24,8 @@ test('reviewer specs', () => {
 
 test('every harness runs read-only', () => {
   const c = commandFor({ harness: 'claude', model: 'claude-sonnet-5-5' }, 'P', '/s', '/o');
-  assert.ok(c.args.includes('--disallowedTools') && c.args.includes('claude-sonnet-5-5'));
+  assert.ok(c.args.join(' ').includes('--tools Read,Grep,Glob') && c.args.includes('claude-sonnet-5-5'));
+  assert.ok(!commandFor({ harness: 'agy' }, 'P', '/s', '/o').args.some((a) => /dangerously/.test(a)));
   assert.deepEqual(commandFor({ harness: 'codex' }, 'P', '/s', '/o').args.slice(0, 3), ['exec', '-s', 'read-only']);
   assert.ok(commandFor({ harness: 'agy' }, 'P', '/s', '/o').args.join(' ').includes('--mode plan'));
 });
@@ -67,7 +68,8 @@ test('end to end with command reviewers: only new commits, rounds, merges of liv
   const prompt = () => readFileSync(join(root, 'prompt.txt'), 'utf8');
   execSync(`git init -q --bare origin.git && git init -q -b main repo`, { cwd: root });
   sh(`git config user.email a@b && git config user.name t && git remote add origin ${join(root, 'origin.git')}`);
-  use(ok); sh('git add -A && git commit -qm base && git push -q -u origin main && git checkout -qb ship/x-20261022');
+  writeFileSync(join(repo, 'README'), 'x'); sh('git add -A && git commit -qm base && git push -q -u origin main && git checkout -qb ship/x-20261022');
+  use(ok); // only on the batch: the live branch has no .ship.json yet, so the batch's own file applies
 
   writeFileSync(join(repo, 'one.js'), 'one'); sh('git add -A && git commit -qm "fix one"');
   assert.equal(review().code, 0);
@@ -96,4 +98,20 @@ test('end to end with command reviewers: only new commits, rounds, merges of liv
 
   use({ verdict: 'approve', summary: 'x', findings: [] }); writeFileSync(join(repo, '.ship.json'), JSON.stringify({ review: { reviewers: [{ name: 'broken', cmd: 'exit 3' }] } }));
   sh('git commit -qam three'); assert.equal(review().code, 2);
+});
+
+test("the live branch's review policy wins over the batch's own .ship.json", () => {
+  const root = mkdtempSync(join(tmpdir(), 'policy-'));
+  const repo = join(root, 'repo');
+  const sh = (c) => execSync(c, { cwd: repo, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  execSync('git init -q --bare origin.git && git init -q -b main repo', { cwd: root });
+  sh(`git config user.email a@b && git config user.name t && git remote add origin ${join(root, 'origin.git')}`);
+  const bad = JSON.stringify({ verdict: 'changes', summary: 'no', findings: [{ severity: 'blocker', file: 'a', line: 1, summary: 'bug' }] });
+  writeFileSync(join(repo, '.ship.json'), JSON.stringify({ review: { reviewers: [{ name: 'strict', cmd: `cat >/dev/null; echo '${bad}'` }] } }));
+  sh('git add -A && git commit -qm base && git push -q -u origin main && git checkout -qb ship/x-20261022');
+  writeFileSync(join(repo, '.ship.json'), JSON.stringify({ review: { reviewers: [], after: 'merge' } }));
+  sh('git commit -qam "turn review off"');
+  let code = 0;
+  try { sh(`node ${join(import.meta.dirname, '..', 'review.mjs')}`); } catch (e) { code = e.status; }
+  assert.equal(code, 1, 'still reviewed by the live policy');
 });
