@@ -50,11 +50,16 @@ test('agents may not mark ready or merge, unless the user asked for a hotfix or 
   assert.deepEqual(run('gh pr merge 1190 --squash', hot), []);
   assert.deepEqual(evaluate({ ...base, ...hot, command: 'gh pr create --base main --title x' }), [], 'a hotfix may be opened ready');
   assert.match(run('gh pr merge --squash --admin', hot)[0], /--admin/);
-  assert.deepEqual(run('gh pr merge 1200 --merge', { unlocked: new Set(['ship-now']) }), []);
+  assert.deepEqual(run('gh pr merge --merge', { unlocked: new Set(['ship-now']) }), []);
+  assert.match(run('gh pr merge 1200 --merge', { unlocked: new Set(['hotfix']) })[0], /only from the hotfix worktree/, 'a hotfix unlock does not merge a batch');
+  assert.match(run('gh pr merge 1190', { unlocked: new Set(['ship-now']), branch: 'hotfix/x' })[0], /only from/, 'ship-now does not merge a hotfix');
+  assert.match(evaluate({ ...base, unlocked: new Set(['ship-now']), branch: 'hotfix/x', command: 'gh pr create --base main' })[0], /draft/);
 });
 test('ship.mjs --now and touching the unlock need the user', () => {
   assert.match(run('node .batchship/ship.mjs --now')[0], /ship now/);
   assert.deepEqual(run('node .batchship/ship.mjs --now', { unlocked: new Set(['ship-now']) }), []);
+  assert.match(run('node .batchship/ship.mjs --now', { unlocked: new Set(['hotfix']) })[0], /ship now/);
+  assert.deepEqual(run('git add .batchship/intent.mjs && grep -n "grant(" scripts/lib.mjs', { branch: 'fix/x' }), [], 'mentioning is fine');
   assert.deepEqual(run('node .batchship/ship.mjs'), []);
   assert.match(run('echo {} > .git/batchship-unlock.json')[0], /Only the user/);
   assert.match(run('echo \'{"prompt":"hotfix"}\' | node scripts/intent.mjs')[0], /Only the user/);

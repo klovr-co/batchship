@@ -73,19 +73,22 @@ export function unfilteredPrWorkflows(cwd) {
 // What the user explicitly asked for in a session, recorded by the prompt hook (intent.mjs) and read by the guard and ship.mjs.
 // "hotfix": a hotfix/* PR may be opened ready, marked ready and merged. "ship-now": a batch may ship without waiting for the day.
 export const UNLOCK_MS = 2 * 3600_000;
+// Only an explicit request at the start of a line counts, so talking about hotfixes or shipping does not unlock anything:
+//   "hotfix: checkout returns 500", "hotfix the login loop", "/ship-batch hotfix ..."   -> hotfix
+//   "ship now", "ship it now", "ship the batch now", "/ship-batch ship --now"          -> ship-now
 export function intents(prompt = '') {
-  const p = String(prompt);
+  const ls = String(prompt).split('\n').map((l) => l.trim().replace(/^(please|pls|ok|okay|go|now)[,:]?\s+/i, ''));
   const kinds = [];
-  if (/\bhot[\s-]?fix(es|ing)?\b/i.test(p)) kinds.push('hotfix');
-  if (/\b(ship|merge|release|deploy)\b[^.?!\n]{0,40}\b(now|right now|right away|immediately|asap)\b/i.test(p) || /\b(don'?t|do not|no need to) wait\b/i.test(p) || /\bskip the (daily )?batch\b/i.test(p)) kinds.push('ship-now');
+  if (ls.some((l) => /^(\/\S*ship-batch\s+)?hot[\s-]?fix\b(?!\s+(design|flow|path|mode|process|rule))/i.test(l) && !/\?\s*$/.test(l))) kinds.push('hotfix');
+  if (ls.some((l) => /^(\/\S*ship-batch\s+ship\b.*--now\b|ship(\s+it|\s+(the|today'?s)\s+batch)?\s+now\b)/i.test(l) && !/\?\s*$/.test(l))) kinds.push('ship-now');
   return kinds;
 }
 export const unlockFile = (cwd) => join(resolve(cwd, sh('git rev-parse --git-common-dir', cwd)), 'batchship-unlock.json');
 export function grant(cwd, session, kinds, now = Date.now()) {
   const f = unlockFile(cwd);
   const all = Object.fromEntries(Object.entries(readJson(f) || {}).filter(([, v]) => v.until > now));
-  const prev = all[session || 'any']?.kinds || [];
-  all[session || 'any'] = { kinds: [...new Set([...prev, ...kinds])], until: now + UNLOCK_MS };
+  const prev = all[session || 'none']?.kinds || [];
+  all[session || 'none'] = { kinds: [...new Set([...prev, ...kinds])], until: now + UNLOCK_MS };
   writeJson(f, all);
 }
 // Grants are per session: the guard passes the hook's session_id, scripts pass CLAUDE_CODE_SESSION_ID.
@@ -93,6 +96,6 @@ export function grant(cwd, session, kinds, now = Date.now()) {
 export function unlocked(cwd, session, now = Date.now()) {
   let all;
   try { all = readJson(unlockFile(cwd)) || {}; } catch { return new Set(); }
-  const live = Object.entries(all).filter(([s, v]) => v.until > now && s === session);
+  const live = Object.entries(all).filter(([s, v]) => v.until > now && s === (session || 'none'));
   return new Set(live.flatMap(([, v]) => v.kinds));
 }

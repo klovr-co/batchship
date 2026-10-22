@@ -37,9 +37,14 @@ test('joining: only today, not shipping, not full, not solo', () => {
 });
 
 test('only the user\'s own words unlock hotfix and ship-now', () => {
-  assert.deepEqual(intents('prod checkout is down, do a hotfix'), ['hotfix']);
-  assert.deepEqual(intents('ship it now please'), ['ship-now']);
-  assert.deepEqual(intents("merge the batch right away, don't wait for tonight"), ['ship-now']);
+  assert.deepEqual(intents('hotfix: checkout returns 500'), ['hotfix']);
+  assert.deepEqual(intents('the login loop is back\nhotfix it please'), ['hotfix']);
+  assert.deepEqual(intents('ship now'), ['ship-now']);
+  assert.deepEqual(intents('ok ship the batch now'), ['ship-now']);
+  assert.deepEqual(intents('/ship-batch ship --now'), ['ship-now']);
+  assert.deepEqual(intents('if i wanna do hotfix i still can just do it'), [], 'talking about hotfixes');
+  assert.deepEqual(intents("can we merge it now? don't wait"), [], 'a question or a mention mid-sentence');
+  assert.deepEqual(intents('hotfix flow: how does it work?'), []);
   assert.deepEqual(intents('fix the cart total'), []);
   const repo = mkdtempSync(join(tmpdir(), 'unlock-'));
   execSync('git init -q', { cwd: repo });

@@ -69,7 +69,7 @@ Red batch CI: re-run only the failed jobs for runner or flaky failures; for a re
 | `fix.mjs eject <PR>` | Your thread | Revert one fix out of its batch |
 | `triage.mjs hotfix <name>` | Your thread | `hotfix/<name>` from the live branch: a normal PR, merged after CI, when you asked for a hotfix |
 
-Saying "hotfix" or "ship now" in a Claude Code session unlocks marking ready and merging for that session for two hours. A prompt hook records your words; agents cannot unlock it themselves.
+In a Claude Code session, start a line of your message with `hotfix: <what is broken>` or `ship now`. A prompt hook records it for that session for two hours: "hotfix" lets the agent open, mark ready and merge a `hotfix/*` PR; "ship now" lets `ship.mjs --now` ship a batch. Talking about hotfixes or shipping does not unlock anything, and agents cannot unlock it themselves. The guard stops agents from taking these steps by mistake; it is not a security boundary.
 
 ## Settings (`.ship.json`)
 
