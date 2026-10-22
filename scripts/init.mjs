@@ -22,7 +22,9 @@ const put = (from, to, refresh = false) => {
 };
 
 // runtime copy: agents without the plugin can still run the check
-for (const f of ['config.mjs', 'batch-check.mjs', 'batch-guard.mjs', 'detect.mjs', 'branch-check.mjs', 'pre-push.mjs', 'triage.mjs', 'review.mjs']) put(`scripts/${f}`, `.batchship/${f}`, true);
+// branch-check.mjs serves the GitHub workflow only: --update refreshes it where the repo has it, never adds it.
+for (const f of ['config.mjs', 'batch-check.mjs', 'batch-guard.mjs', 'detect.mjs', 'branch-check.mjs', 'pre-push.mjs', 'triage.mjs', 'review.mjs'])
+  if (!(update && f === 'branch-check.mjs' && !existsSync(`.batchship/${f}`))) put(`scripts/${f}`, `.batchship/${f}`, true);
 writeFileSync('.batchship/package.json', '{"type":"module"}\n');
 
 if (!existsSync('.ship.json')) {
@@ -34,7 +36,8 @@ if (!existsSync('.ship.json')) {
 put('templates/agents-hooks.json', '.agents/hooks.json'); // Antigravity workspace hook
 put('templates/codex-hooks.json', '.codex/hooks.json'); // Codex repo hook
 const wf = '.github/workflows/batch-branch-check.yml';
-if (!existsSync(wf)) {
+if (update) console.log(`skip   ${wf} (--update leaves workflows alone)`);
+else if (!existsSync(wf)) {
   const cfg = JSON.parse(readFileSync('.ship.json', 'utf8'));
   const branches = JSON.stringify([cfg.protectedBranch]);
   mkdirSync(dirname(wf), { recursive: true });
