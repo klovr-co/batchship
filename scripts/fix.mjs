@@ -134,7 +134,8 @@ export function done(cwd, { title, body, focus, config }) {
     const note = reviewComment(readJson(gitPath(wt, 'batchship-review.json')));
     if (note) { const f = gitPath(wt, 'batchship-review.md'); writeFileSync(f, note); trySh(`gh pr comment ${pr} --body-file ${q(f)}`, wt); }
     if (!waitForChecks(pr, wt)) throw Object.assign(new Error(`checks failed on fix PR #${pr}: fix, commit, run fix.mjs done again`), { code: 1 });
-    sh(`gh pr merge ${pr} --squash --subject ${q(`${t} (#${pr})`)} --body ${q(bodyText)}`, wt);
+    try { sh(`gh pr merge ${pr} --squash --subject ${q(`${t} (#${pr})`)} --body ${q(bodyText)}`, wt); }
+    catch (e) { throw Object.assign(new Error(`could not merge fix PR #${pr} into ${m.batch} (${e.stderr?.toString().trim() || e.message}). It stays open; deal with what blocks it, then run fix.mjs done again.`), { code: 1 }); }
     trySh(`git push -q origin --delete ${m.branch}`, wt);
   } else {
     const bw = batchCheckout(wt, m.batch);

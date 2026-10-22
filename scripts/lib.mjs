@@ -88,10 +88,11 @@ export function grant(cwd, session, kinds, now = Date.now()) {
   all[session || 'any'] = { kinds: [...new Set([...prev, ...kinds])], until: now + UNLOCK_MS };
   writeJson(f, all);
 }
-// session undefined: any live grant counts (scripts cannot see the session; the guard checks the session for agents).
+// Grants are per session: the guard passes the hook's session_id, scripts pass CLAUDE_CODE_SESSION_ID.
+// This stops agents by mistake, not on purpose: any process on the machine can write files.
 export function unlocked(cwd, session, now = Date.now()) {
   let all;
   try { all = readJson(unlockFile(cwd)) || {}; } catch { return new Set(); }
-  const live = Object.entries(all).filter(([s, v]) => v.until > now && (session === undefined || s === session));
+  const live = Object.entries(all).filter(([s, v]) => v.until > now && s === session);
   return new Set(live.flatMap(([, v]) => v.kinds));
 }

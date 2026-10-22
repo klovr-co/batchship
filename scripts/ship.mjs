@@ -43,7 +43,9 @@ export function prText({ batch, live, subjects, reason, review = [] }) {
 export function ship(cwd, wanted, { now = false }) {
   const config = withLivePolicy(cwd, loadConfig(cwd));
   const live = config.protectedBranch;
-  if (now && !unlocked(cwd).size && process.env.BATCHSHIP_ALLOW !== '1')
+  // The session that runs this must be the one where the user asked (Claude Code sets CLAUDE_CODE_SESSION_ID); a human at a terminal uses BATCHSHIP_ALLOW=1.
+  const session = process.env.CLAUDE_CODE_SESSION_ID;
+  if (now && !(session && unlocked(cwd, session).size) && process.env.BATCHSHIP_ALLOW !== '1')
     throw new Error('--now needs the user to ask for it: they say "ship now" (or "hotfix") in the session. A human at a terminal can run BATCHSHIP_ALLOW=1 ship.mjs --now.');
   const today = new Date();
   let batches = listBatches(cwd, { live, soloPaths: config.soloPaths });

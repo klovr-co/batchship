@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-// PreToolUse hook (Bash, Edit, Write). Silent in repos without .ship.json. Dry run: guardMode "warn" in .ship.json only reports.
+// PreToolUse hook (Bash, Edit, Write). It stops agents from taking a wrong step by mistake; it is not a security boundary against
+// a process set on getting around it. Silent in repos without .ship.json. Dry run: guardMode "warn" in .ship.json only reports.
 // Revert: set guardMode to "warn", or remove the hook entry in hooks/hooks.json.
 import { execSync } from 'node:child_process';
 import { readFileSync, existsSync } from 'node:fs';
@@ -35,7 +36,8 @@ export function evaluate({ command = '', filePath, cwd = '.', branch, branchOf =
     const x = p.replace(/\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?/g, (m, v) => vars[v] ?? m);
     return dir && !/[$`*]/.test(x) ? resolve(dir, x) : null;
   };
-  if (/batchship-unlock|intent\.mjs/.test(command)) out.push('Only the user unlocks hotfix / ship-now, by asking for it in the session.');
+  if (/batchship-un|intent\.mjs|\bgrant\s*\(/.test(command)) out.push('Only the user unlocks hotfix / ship-now, by asking for it in the session.');
+  if (/BATCHSHIP_ALLOW/.test(command) && !/^git\s+push\b/m.test(command)) out.push('BATCHSHIP_ALLOW is the human\'s override; agents do not set it.');
   const segments = command.split(/&&|\|\||;|\n/).map((s) => s.trim().replace(/^[({]\s*/, ''));
   for (const raw of segments) {
     const assign = raw.match(/^([A-Za-z_][A-Za-z0-9_]*)=("[^"]*"|'[^']*'|\S*)$/);
@@ -55,7 +57,7 @@ export function evaluate({ command = '', filePath, cwd = '.', branch, branchOf =
       if (hit) out.push(manual.includes(hit) ? `${hit} is handled manually by a human; do not push to it.` : `Do not push to ${hit}. Fixes go through ${cmd('fix.mjs')} done; urgent ones through a hotfix PR.`);
       // Batches change only through fix.mjs done (reviewed fixes) and ship.mjs, never by a direct push.
       const refs = seg.split(/\s+/).slice(2).filter((w) => !w.startsWith('-')).slice(1); // after the remote name
-      const dests = refs.length ? refs.map((r) => r.split(':').pop()).map((d) => (d === 'HEAD' ? branch : d)) : [branch];
+      const dests = refs.length ? refs.map((r) => r.replace(/^\+/, '').split(':').pop().replace(/^refs\/heads\//, '')).map((d) => (d === 'HEAD' ? branch : d)) : [branch];
       if (!/\s--delete\b|\s-d\s/.test(seg) && dests.some((d) => d && isShip(d)))
         out.push(`Batch branches change only through ${cmd('fix.mjs')} done and ${cmd('ship.mjs')}; push your fix branch instead.`);
     }

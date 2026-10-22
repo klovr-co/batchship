@@ -105,4 +105,6 @@ test('end to end without GitHub: today, fix start/done (reused worker), eject, s
   assert.match(hot, /HOTFIX hotfix\/checkout-500/);
   assert.equal(sh('git branch --show-current', hot.match(/work in: (.+)/)[1]), 'hotfix/checkout-500');
   assert.match(fails('ship.mjs', '--now'), /needs the user to ask/);
+  grant(repo, 'other-session', ['ship-now']);
+  assert.match(fails('ship.mjs', '--now'), /needs the user to ask/, 'a grant from another session does not count');
 });

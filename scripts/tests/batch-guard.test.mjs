@@ -59,6 +59,8 @@ test('ship.mjs --now and touching the unlock need the user', () => {
   assert.match(run('echo {} > .git/batchship-unlock.json')[0], /Only the user/);
   assert.match(run('echo \'{"prompt":"hotfix"}\' | node scripts/intent.mjs')[0], /Only the user/);
   assert.match(evaluate({ ...base, filePath: '/r/.git/batchship-unlock.json' })[0], /Only the user/);
+  assert.match(run('cat > "$(git rev-parse --git-common-dir)/batchship-un"*')[0], /Only the user/);
+  assert.ok(run('BATCHSHIP_ALLOW=1 node .batchship/ship.mjs --now', { unlocked: new Set(['ship-now']) }).some((m) => /override/.test(m)));
 });
 test('batches change only through the scripts; fix branches push freely', () => {
   assert.match(run('git push')[0], /fix branch instead/);
@@ -67,6 +69,7 @@ test('batches change only through the scripts; fix branches push freely', () => 
   assert.match(run('git push origin HEAD:ship/day-20261022', { branch: 'fix/x' })[0], /fix branch instead/);
   assert.deepEqual(run('git push -u origin fix/offline-qr', { branch: 'fix/offline-qr' }), []);
   assert.deepEqual(run('git push -u origin hotfix/x', { branch: 'hotfix/x' }), []);
+  assert.match(run('git push origin +HEAD:refs/heads/ship/day-20261022', { branch: 'fix/x' })[0], /fix branch instead/);
 });
 test('fix PRs into a batch need no draft and no marker', () =>
   assert.deepEqual(evaluate({ ...base, branch: 'fix/x', marker: '', command: 'gh pr create --base ship/day-20261022 --title x' }), []));

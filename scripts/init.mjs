@@ -23,7 +23,7 @@ const put = (from, to, refresh = false) => {
 
 // runtime copy: agents without the plugin can still run the check
 // branch-check.mjs serves the GitHub workflow only: --update refreshes it where the repo has it, never adds it.
-for (const f of ['config.mjs', 'lib.mjs', 'batch-check.mjs', 'batch-guard.mjs', 'detect.mjs', 'branch-check.mjs', 'pre-push.mjs', 'triage.mjs', 'fix.mjs', 'ship.mjs', 'review.mjs'])
+for (const f of ['config.mjs', 'lib.mjs', 'batch-check.mjs', 'batch-guard.mjs', 'detect.mjs', 'branch-check.mjs', 'pre-push.mjs', 'triage.mjs', 'fix.mjs', 'ship.mjs', 'review.mjs', 'intent.mjs'])
   if (!(update && f === 'branch-check.mjs' && !existsSync(`.batchship/${f}`))) put(`scripts/${f}`, `.batchship/${f}`, true);
 writeFileSync('.batchship/package.json', '{"type":"module"}\n');
 writeFileSync('.batchship/VERSION', JSON.parse(readFileSync(join(root, 'plugin.json'), 'utf8')).version + '\n'); // the guard compares it with the plugin's
