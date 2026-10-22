@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parseBatch, ageDays, ymd, batchName, whyNotJoinable } from '../triage.mjs';
 import { intents, grant, unlocked } from '../lib.mjs';
-import { prText } from '../ship.mjs';
+import { prText, autoMerge } from '../ship.mjs';
 
 const today = new Date(2026, 9, 21, 7, 30); // 07:30 local: still the 21st even where UTC is the 20th
 const day = (n) => ymd(new Date(2026, 9, 21 - n));
@@ -58,6 +58,14 @@ test('only the user\'s own words unlock hotfix and ship', () => {
   assert.deepEqual([...unlocked(repo, 's1', 2000)], ['hotfix']);
   assert.deepEqual([...unlocked(repo, 's2', 2000)], [], 'another session is not unlocked');
   assert.deepEqual([...unlocked(repo, 's1', 1000 + 3 * 3600_000)], [], 'expires');
+});
+
+test('the batch PR merges itself only after the user asked to ship, or when a human runs it', () => {
+  assert.equal(autoMerge({ merge: false, after: 'merge', agent: 'claude', asked: true }), true, 'list done, user said ship when done');
+  assert.equal(autoMerge({ merge: false, after: 'merge', agent: 'claude', asked: false }), false, 'an agent shipping on its own: draft');
+  assert.equal(autoMerge({ merge: false, after: 'merge', agent: null, asked: false }), true, 'a human at a terminal');
+  assert.equal(autoMerge({ merge: false, after: 'human', agent: 'claude', asked: true }), false, 'review.after human waits');
+  assert.equal(autoMerge({ merge: true, after: 'human', agent: 'claude', asked: true }), true, '--merge');
 });
 
 test('batch PR lists every fix with its PR and says how to merge', () => {

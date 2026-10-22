@@ -3,8 +3,8 @@
 //   ship.mjs [<batch>] [--merge]
 // Merges the live branch into the batch, runs the full check and an advisory review of the whole batch, pushes, and opens
 // (or updates) the batch PR as a draft listing every fix. Open fix PRs still aimed at the batch move to today's batch.
-// Then: review.after "merge" (default, from the live branch's .ship.json), or --merge when the user asked to ship once their fixes
-// are done, marks it ready, waits for CI and merges with a merge commit. It stops at the draft when the whole-batch review finds a
+// Then: review.after "merge" (default, from the live branch's .ship.json) when the user asked to ship in this session (or a human
+// runs it), or --merge, marks it ready, waits for CI and merges with a merge commit. It stops at the draft when the whole-batch review finds a
 // blocker or major issue. review.after "human" stops for the human to mark it ready and merge.
 // Waiting for CI takes as long as the CI run: start it in the background.
 import { spawnSync } from 'node:child_process';
@@ -14,6 +14,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { loadConfig, withLivePolicy } from './config.mjs';
 import { sh, trySh, lines, q, gitPath, readJson, onGitHub, batchCheckout, unlocked } from './lib.mjs';
 import { listBatches, todayBatch, DAY_SLUG } from './triage.mjs';
+import { sameHarness } from './review.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const node = (script, args, cwd) => spawnSync(process.execPath, [join(here, script), ...args], { cwd, stdio: 'inherit' }).status;
@@ -41,12 +42,19 @@ export function prText({ batch, live, subjects, reason, review = [] }) {
   return { title, body };
 }
 
+// Whether ship.mjs merges the batch PR itself. An agent merges only when the user asked to ship in its session: otherwise an
+// agent shipping after one fix would put a half-done list on the live branch. A human at a terminal follows review.after.
+export function autoMerge({ merge, after, agent, asked }) {
+  return merge || (after === 'merge' && (!agent || asked));
+}
+
 export function ship(cwd, wanted, { merge = false }) {
   const config = withLivePolicy(cwd, loadConfig(cwd));
   const live = config.protectedBranch;
   // The session that runs this must be the one where the user asked (Claude Code sets CLAUDE_CODE_SESSION_ID); a human at a terminal uses BATCHSHIP_ALLOW=1.
   const session = process.env.CLAUDE_CODE_SESSION_ID;
-  if (merge && !(session && unlocked(cwd, session).has('ship')) && process.env.BATCHSHIP_ALLOW !== '1')
+  const asked = (session && unlocked(cwd, session).has('ship')) || process.env.BATCHSHIP_ALLOW === '1';
+  if (merge && !asked)
     throw new Error('--merge needs the user to ask for it in the session ("ship when done", "then ship", "ship now"). A human at a terminal can run BATCHSHIP_ALLOW=1 ship.mjs --merge.');
   const today = new Date();
   let batches = listBatches(cwd, { live, soloPaths: config.soloPaths });
@@ -84,8 +92,7 @@ export function ship(cwd, wanted, { merge = false }) {
     const next = todayBatch(cwd, { batches, today, config }).batch;
     for (const f of open) try { sh(`gh pr edit ${f.number} --base ${next}`, cwd); moved.push(`#${f.number} -> ${next}`); } catch {}
   }
-  const auto = merge || config.review.after === 'merge';
-  if (!auto) return { batch: b.name, pr, title, moved, merged: false };
+  if (!autoMerge({ merge, after: config.review.after, agent: sameHarness(), asked })) return { batch: b.name, pr, title, moved, merged: false };
   // Each fix passed its own review; the whole-batch review only stops the merge when the fixes break each other.
   const held = (readJson(out) || []).filter((r) => r.ok).flatMap((r) => r.findings || []).filter((f) => f.severity === 'blocker' || f.severity === 'major');
   if (held.length) return { batch: b.name, pr, title, moved, merged: false, held: held.length };

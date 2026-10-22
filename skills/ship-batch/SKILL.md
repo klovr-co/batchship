@@ -20,7 +20,7 @@ Stop and ask if there is no recognisable stack, no CI, several competing candida
 Follow BATCH.md; these are its steps.
 - `start <name>` (or any coding task while on the live branch): `node .batchship/fix.mjs start <name>` joins today's batch; hand the fix to a worker with the worker prompt in BATCH.md. A separate batch only for soloPaths, a full batch, or the user asking: `triage.mjs new <name> --reason "..."`.
 - `done`: in the fix worktree, `node .batchship/fix.mjs done --title "..."`. It checks, reviews, opens the fix PR into the batch and merges it. Fix what it reports and run it again.
-- `ship [<batch>]`: `node .batchship/ship.mjs` (in the background) opens the batch PR to the live branch and, with the default `review.after: "merge"`, marks it ready, waits for CI and merges it; with `"human"` it stops at the draft. When the user asked to ship once their fixes are done: finish all of them first, then `ship.mjs --merge` (ready, CI, merge).
+- `ship [<batch>]`: `node .batchship/ship.mjs` (in the background) opens the batch PR to the live branch and, when the user asked to ship in the session and `review.after` is `"merge"` (default), marks it ready, waits for CI and merges it; with `"human"` it stops at the draft. When the user asked to ship once their fixes are done: finish all of them first, then `ship.mjs --merge` (ready, CI, merge).
 - `hotfix <name>`: only when the user asked for a hotfix: `node .batchship/triage.mjs hotfix <name>`, then a normal PR to the live branch, merged after its CI passes.
 - `status`: `node .batchship/triage.mjs list`.
 
