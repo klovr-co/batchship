@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { evaluate } from '../batch-guard.mjs';
 import { DEFAULTS } from '../config.mjs';
 
-const base = { branch: 'ship/a', head: 'abc', marker: 'abc', config: DEFAULTS };
+const base = { branch: 'ship/a', head: 'abc', marker: 'abc', review: { head: 'abc', pass: true }, config: DEFAULTS };
 const run = (command, o = {}) => evaluate({ ...base, command: command.replace(/^gh pr create(?!.*--draft)/, 'gh pr create --draft'), ...o });
 
 test('PR from feature branch is flagged', () => assert.equal(run('gh pr create --base main', { branch: 'feature/x' }).length, 1));
@@ -14,6 +14,13 @@ test('PR into ship/ branch is free', () => assert.deepEqual(run('gh pr create --
 test('push to main is flagged', () => assert.equal(run('git push origin main').length, 1));
 test('push HEAD:main is flagged', () => assert.equal(run('git push origin HEAD:main').length, 1));
 test('push to ship/ is allowed', () => assert.deepEqual(run('git push -u origin ship/a'), []));
+test('push to ship/ needs a passing review for HEAD', () => {
+  assert.match(run('git push', { review: { head: 'old', pass: true } })[0], /Review before pushing/);
+  assert.match(run('git push', { review: { head: 'abc', pass: false } })[0], /Review before pushing/);
+  assert.match(run('git push', { review: null })[0], /Review before pushing/);
+  assert.deepEqual(run('git push', { review: null, branch: 'hotfix/x' }), []);
+  assert.deepEqual(run('git push', { review: null, config: { ...DEFAULTS, review: { ...DEFAULTS.review, reviewers: [] } } }), []);
+});
 
 import { parseInput, formatOutput } from '../batch-guard.mjs';
 test('parses Claude Code input', () =>
@@ -46,6 +53,17 @@ test('agent using BATCHSHIP_ALLOW or --no-verify is flagged', () => {
 test('agents may not mark ready or merge', () => {
   assert.match(run('gh pr ready 12')[0], /paid step/);
   assert.match(run('gh pr merge 12 --squash')[0], /do not merge/);
+});
+const auto = { ...DEFAULTS, review: { ...DEFAULTS.review, after: 'merge' } };
+test("after: 'merge': ready and merge only from a batch whose HEAD passed check and review", () => {
+  const passed = { config: auto, review: { head: 'abc', pass: true } };
+  assert.deepEqual(run('gh pr ready 12', passed), []);
+  assert.deepEqual(run('gh pr merge 12 --squash', passed), []);
+  assert.match(run('gh pr merge 12', { ...passed, review: { head: 'old', pass: true } })[0], /No passing review/);
+  assert.match(run('gh pr merge 12', { ...passed, review: { head: 'abc', pass: false } })[0], /No passing review/);
+  assert.match(run('gh pr ready 12', { ...passed, marker: '' })[0], /batch-check/);
+  assert.match(run('gh pr merge 12', { ...passed, branch: 'main' })[0], /batch worktree/);
+  assert.match(run('gh pr merge 12', { ...passed, review: null })[0], /No passing review/);
 });
 test('non-draft PR create is flagged', () => assert.ok(evaluate({ ...base, command: 'gh pr create --base main' }).some((m) => /draft/.test(m))));
 

@@ -20,9 +20,17 @@ Tasks for the same batch go to the same worker, one after another. Different bat
 Already working on your own branch (e.g. a T3 thread's worktree)? `node .batchship/triage.mjs adopt <name>` turns that branch into a batch in place.
 
 ## 3. Worker prompt
-> Work only in `<worktree>` on branch `<batch>`. Commit each fix there; run `node .batchship/batch-check.mjs --quick` before each commit. When done: merge in the latest live branch (`git fetch origin && git merge origin/<live>`), run `node .batchship/batch-check.mjs`, push, and open or update the draft PR (`gh pr create --draft --base <live>`, titled after the batch). Never mark it ready, never merge, never push to the live or manual branches, never deploy.
+> Work only in `<worktree>` on branch `<batch>`. For each fix: run `node .batchship/batch-check.mjs --quick`, commit, then `node .batchship/review.mjs` (add `--focus "..."` for the risky part). Fix blocker and major findings, commit, and review again; push only after the review passes. When the batch is done: merge in the latest live branch (`git fetch origin && git merge origin/<live>`), run `node .batchship/batch-check.mjs` and `node .batchship/review.mjs` again, push, and open or update the draft PR (`gh pr create --draft --base <live>`, titled after the batch). Never push to the live or manual branches, never deploy. Unless `review.after` is `merge`, never mark the PR ready and never merge. Report the PR, the review results and any findings left open.
 
-## 4. Human
-Mark the draft ready when the batch is done (CI runs once), then merge. `triage.mjs list` flags stale batches: close or abandon them.
+## 4. Review each fix, then ship
+Every fix is reviewed as it lands on the batch, before it is pushed, so nothing unreviewed reaches `ship/*` and each review sees a small change. `review.mjs` shows the reviewers only the commits since the last passing review; commits that just merge the live branch in pass without one. The guard refuses `git push` on a batch branch until HEAD has passed.
 
-Urgent production bug: a `hotfix/NAME` PR to the live branch.
+Reviewers come from `review.reviewers` in `.ship.json` and run in parallel, read-only: `"same"` (the agent's own harness, the default), `"claude"`, `"codex"`, `"agy"`, each optionally with `:model`, e.g. `["claude:claude-sonnet-5-5", "codex:gpt-6-sol"]`. Any blocker or major finding holds the fix; minors are only reported. After `review.rounds` failed reviews in a row, stop and hand the batch to the human with the open findings (`--force` re-opens review once the human says so).
+
+When the batch is done:
+- `review.after: "human"` (default): the worker stops at the draft PR. The human marks it ready (CI runs once) and merges.
+- `review.after: "merge"`: with check and review passed for HEAD, the worker marks the PR ready from the worktree (`gh pr ready`), waits for CI (`gh pr checks --watch`), and merges (`gh pr merge --squash`) only if CI is green and no deploy of the live branch is running. If CI fails, fix it, check, review, push and retry. The guard refuses ready and merge without a passing check and review for HEAD.
+
+`triage.mjs list` flags stale batches: close or abandon them.
+
+Urgent production bug: a `hotfix/NAME` PR to the live branch (no review step).

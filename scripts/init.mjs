@@ -22,7 +22,7 @@ const put = (from, to, refresh = false) => {
 };
 
 // runtime copy: agents without the plugin can still run the check
-for (const f of ['config.mjs', 'batch-check.mjs', 'batch-guard.mjs', 'detect.mjs', 'branch-check.mjs', 'pre-push.mjs', 'triage.mjs']) put(`scripts/${f}`, `.batchship/${f}`, true);
+for (const f of ['config.mjs', 'batch-check.mjs', 'batch-guard.mjs', 'detect.mjs', 'branch-check.mjs', 'pre-push.mjs', 'triage.mjs', 'review.mjs']) put(`scripts/${f}`, `.batchship/${f}`, true);
 writeFileSync('.batchship/package.json', '{"type":"module"}\n');
 
 if (!existsSync('.ship.json')) {

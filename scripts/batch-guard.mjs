@@ -12,8 +12,8 @@ const isBatchBranch = (b, c) => [...c.batchPrefixes, ...c.hotfixPrefixes].some((
 const triageFirst = (b, t) => `You are on ${b}, a live branch: do not edit or commit here. Triage first: ${t} list, `
   + 'then join <batch> or new <name>, and do the work in the printed worktree (or hand it to a worker there).';
 
-// branchOf/headOf/markerOf(dir) read the git state of the directory a command runs in; tests may pass fixed values instead.
-export function evaluate({ command = '', filePath, cwd = '.', branch, branchOf = () => branch, head, headOf = () => head, marker, markerOf = () => marker, config, triage = 'node .batchship/triage.mjs' }) {
+// branchOf/headOf/markerOf/reviewOf(dir) read the git state of the directory a command runs in; tests may pass fixed values instead.
+export function evaluate({ command = '', filePath, cwd = '.', branch, branchOf = () => branch, head, headOf = () => head, marker, markerOf = () => marker, review, reviewOf = () => review, config, triage = 'node .batchship/triage.mjs' }) {
   const out = [];
   const prot = config.protectedBranch;
   const manual = config.manualBranches || [];
@@ -47,9 +47,21 @@ export function evaluate({ command = '', filePath, cwd = '.', branch, branchOf =
       const hit = [prot, ...manual].find((g) => new RegExp(`(\\s|:|\\/)${g}(\\s|$)`).test(seg) || (/^git\s+push\s*$/.test(seg) && branch === g));
       if (hit) out.push(manual.includes(hit) ? `${hit} is handled manually by a human; do not push to it.` : `Do not push to ${hit}. Work on ${config.batchPrefixes[0]}NAME and open a PR.`);
     }
-    // Marking ready and merging are the paid / release steps: human only.
-    if (/^gh\s+pr\s+ready\b/.test(seg)) out.push('Marking a PR ready starts CI (the paid step). Leave it as a draft and ask the human to mark it ready.');
-    if (/^gh\s+pr\s+merge\b/.test(seg)) out.push('Agents do not merge PRs. The human merges.');
+    // Each fix is reviewed as it lands on the batch: pushing a batch branch needs a passing review for HEAD.
+    if (/^git\s+push\b/.test(seg) && known && config.review?.reviewers?.length && config.batchPrefixes.some((p) => branch.startsWith(p))) {
+      const r = reviewOf(segDir);
+      if (!(r?.pass && r.head === headOf(segDir))) out.push('Review before pushing to the batch: node .batchship/review.mjs, then fix blocker/major findings.');
+    }
+    // Marking ready and merging are the paid / release steps: human only, unless review.after is 'merge' and this batch passed check and review.
+    const ship = /^gh\s+pr\s+(ready|merge)\b/.exec(seg)?.[1];
+    if (ship && config.review?.after === 'merge') {
+      const h = segDir ? headOf(segDir) : '';
+      const r = segDir ? reviewOf(segDir) : null;
+      if (!known || !isBatchBranch(branch, config)) out.push(`Run gh pr ${ship} from inside the batch worktree (${config.batchPrefixes[0]}*), so the guard can see its review.`);
+      else if (markerOf(segDir) !== h) out.push('No passing batch-check for HEAD. Run: node .batchship/batch-check.mjs');
+      else if (!(r?.pass && r.head === h)) out.push('No passing review for HEAD. Run: node .batchship/review.mjs, fix blocker/major findings, then retry.');
+    } else if (ship === 'ready') out.push('Marking a PR ready starts CI (the paid step). Leave it as a draft and ask the human to mark it ready.');
+    else if (ship === 'merge') out.push('Agents do not merge PRs. The human merges.');
     if (/^gh\s+pr\s+create\b/.test(seg) && !/(--draft|\s-d)(\s|$)/.test(seg)) out.push('Open the PR as a draft (--draft); a non-draft PR starts CI immediately.');
     if (/^gh\s+pr\s+create\b/.test(seg)) {
       const base = (seg.match(/(?:--base|-B)[=\s]+(\S+)/) || [])[1];
@@ -104,9 +116,13 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href) {
     const p = git('rev-parse --git-path batchship-check', existing(d));
     return p && existsSync(resolve(existing(d), p)) ? readFileSync(resolve(existing(d), p), 'utf8').trim() : '';
   };
+  const reviewOf = (d) => {
+    const p = git('rev-parse --git-path batchship-review.json', existing(d));
+    try { return JSON.parse(readFileSync(resolve(existing(d), p), 'utf8')); } catch { return null; }
+  };
   // Repos set up before triage existed have no .batchship/triage.mjs: point at this plugin's copy.
   const triage = existsSync(resolve(root, '.batchship/triage.mjs')) ? 'node .batchship/triage.mjs' : `node "${resolve(import.meta.dirname, 'triage.mjs')}"`;
-  const problems = evaluate({ command, filePath, cwd, branchOf, headOf, markerOf, config, triage });
+  const problems = evaluate({ command, filePath, cwd, branchOf, headOf, markerOf, reviewOf, config, triage });
   if (problems.length) console.log(JSON.stringify(formatOutput(agent, `batchship: ${problems.join(' ')}`, config.guardMode === 'block')));
   else if (agent === 'agy') console.log(JSON.stringify({ decision: 'allow' }));
 }
