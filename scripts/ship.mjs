@@ -12,7 +12,7 @@ import { writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { loadConfig, withLivePolicy } from './config.mjs';
-import { sh, trySh, lines, q, gitPath, readJson, onGitHub, batchCheckout, unlocked } from './lib.mjs';
+import { sh, trySh, lines, q, gitPath, readJson, writeJson, onGitHub, batchCheckout, unlocked } from './lib.mjs';
 import { listBatches, todayBatch, DAY_SLUG } from './triage.mjs';
 import { sameHarness } from './review.mjs';
 
@@ -37,7 +37,7 @@ export function prText({ batch, live, subjects, reason, review = [] }) {
     ...(findings.length ? ['', '## Advisory review of the whole batch', 'How the fixes interact and the merge resolutions. It does not block.', ...findings] : []),
     '', '## Merging',
     `Merge with a **merge commit**, not squash: each fix stays its own commit on \`${live}\`, so one fix can be reverted alone and \`git blame\` leads to its PR.`,
-    'If CI is red: a runner or flaky failure, re-run only the failed jobs. A real failure, find the fix with `git bisect run <failing test>` over this batch, then fix forward with a new fix PR or `fix.mjs eject <PR>`.',
+    'If CI is red: a runner or flaky failure, re-run only the failed jobs. A real failure, find the fix with `git bisect run <failing test>` over this batch, then fix forward (`fix.mjs start <name> --repair`, `fix.mjs done`) or `fix.mjs eject <PR>`, and run `ship.mjs` again.',
   ].join('\n');
   return { title, body };
 }
@@ -96,11 +96,25 @@ export function ship(cwd, wanted, { merge = false }) {
   // Each fix passed its own review; the whole-batch review only stops the merge when the fixes break each other.
   const held = (readJson(out) || []).filter((r) => r.ok).flatMap((r) => r.findings || []).filter((f) => f.severity === 'blocker' || f.severity === 'major');
   if (held.length) return { batch: b.name, pr, title, moved, merged: false, held: held.length };
-  sh(`gh pr ready ${pr}`, bw);
+  // Red CI gets review.ciRounds tries (re-run, repair or eject, then ship again), counted per batch; then it is the human's.
+  const ciFile = gitPath(bw, 'batchship-ci.json');
+  const ci = readJson(ciFile) || {};
+  const red = ci[b.name]?.red || 0;
+  if (red >= config.review.ciRounds && process.env.BATCHSHIP_ALLOW !== '1')
+    throw Object.assign(new Error(`CI was red ${red} times on #${pr} (review.ciRounds is ${config.review.ciRounds}): stop and hand it to the human with what failed.`), { code: 1 });
+  trySh(`gh pr ready ${pr}`, bw);
   console.log(`\n== waiting for CI on #${pr}`);
   spawnSync('sleep', ['15']);
   const green = spawnSync('gh', ['pr', 'checks', String(pr), '--watch', '--interval', '30'], { cwd: bw, stdio: 'inherit' }).status === 0;
-  if (!green) throw Object.assign(new Error(`CI is red on #${pr}: see "If CI is red" in its description. Nothing was merged.`), { code: 1 });
+  if (!green) {
+    writeJson(ciFile, { ...ci, [b.name]: { red: red + 1, at: new Date().toISOString() } });
+    const failed = lines(trySh(`gh pr checks ${pr} --json name,bucket -q '.[] | select(.bucket == "fail") | .name'`, bw) || '');
+    const left = config.review.ciRounds - red - 1;
+    throw Object.assign(new Error([`CI is red on #${pr} (try ${red + 1} of ${config.review.ciRounds}). Nothing was merged.`,
+      failed.length && `Failed: ${failed.join(', ')}`,
+      left > 0 ? 'Next: a runner or flaky failure, re-run the failed jobs (gh run rerun <run> --failed); a real one, find the fix with git bisect run <test>, then repair it (fix.mjs start <name> --repair, fix.mjs done) or eject it (fix.mjs eject <PR>). Then run ship.mjs again.'
+        : 'No tries left: hand it to the human with what failed.'].filter(Boolean).join('\n')), { code: 1 });
+  }
   sh(`gh pr merge ${pr} --merge`, bw);
   return { batch: b.name, pr, title, moved, merged: true };
 }

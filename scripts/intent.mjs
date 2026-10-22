@@ -13,7 +13,7 @@ if (root) {
   try { grant(root, input.session_id, kinds); } catch { process.exit(0); } // never break the user's prompt
   const say = {
     hotfix: 'a hotfix: triage.mjs hotfix <name>, fix it there, push, open a normal (non-draft) PR to the live branch, wait for its CI, then merge it',
-    ship: 'the batch shipped once everything they asked for in this session is done: finish every fix (each through fix.mjs done), make sure none of them is still open, then run ship.mjs --merge in the background; it opens the batch PR, marks it ready, waits for CI and merges it with a merge commit. Tell the user the result',
+    ship: 'the batch shipped once everything they asked for in this session is done: finish every fix (each through fix.mjs done), make sure none of them is still open, then run ship.mjs --merge in the background; it opens the batch PR, marks it ready, waits for CI and merges it with a merge commit. If CI is red, follow what ship.mjs prints (re-run, or repair with fix.mjs start <name> --repair, or eject) and run ship.mjs --merge again, up to review.ciRounds tries. Tell the user the result',
   };
   console.log(JSON.stringify({ hookSpecificOutput: { hookEventName: 'UserPromptSubmit',
     additionalContext: `batchship: the user asked for ${kinds.map((k) => say[k]).join('; and ')}. Allowed in this session for ${UNLOCK_MS / 3600_000} hours.` } }));

@@ -54,7 +54,7 @@ flowchart TD
     AU --> LIVE
 ```
 
-Red batch CI: re-run only the failed jobs for runner or flaky failures; for a real failure, `git bisect run <test>` over the batch (one commit per fix) finds the fix, then fix forward or `fix.mjs eject <PR>`.
+Red batch CI: re-run only the failed jobs for runner or flaky failures; for a real failure, `git bisect run <test>` over the batch (one commit per fix) finds the fix, then repair it (`fix.mjs start <name> --repair`: reviewed like any fix, lands on the shipping batch) or `fix.mjs eject <PR>`, and ship again. ship.mjs stops after `review.ciRounds` red runs and hands it to you.
 
 ## Commands
 
@@ -92,6 +92,7 @@ A prompt hook records the request for that session for two hours, and each one o
 | `review.after` | `merge` | `merge`: when you asked to ship (or run it yourself), ship.mjs marks the batch PR ready, waits for CI and merges it, unless the whole-batch review finds a blocker or major issue. `human`: the batch PR waits for you. Read from the live branch, so a batch cannot change it |
 | `review.focus` | `""` | Extra review instructions for every fix |
 | `review.timeoutMinutes` | `20` | Per reviewer |
+| `review.ciRounds` | `3` | Red CI runs on a batch PR before ship.mjs stops and hands it to you |
 
 ## What each layer covers
 

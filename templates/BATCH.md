@@ -27,7 +27,8 @@ Batches ship once a day by default. When the user asks to ship once their work i
 ## Red CI on a batch
 1. A runner lost, a timeout, or a test that also fails on the live branch: re-run only the failed jobs (`gh run rerun <run> --failed`).
 2. A real failure: run the failing test locally on the batch and find the fix with `git bisect run <test>` over the batch's commits (one commit per fix).
-3. Fix forward with a new fix PR, or take it out: `node .batchship/fix.mjs eject <PR number>`. Then CI once more. Red again: hand it to the human.
+3. Fix forward: `node .batchship/fix.mjs start <name> --repair` (it lands on the shipping batch, not today's), then `fix.mjs done` as usual: checked and reviewed. Or take the fix out: `node .batchship/fix.mjs eject <PR number>`.
+4. Run `ship.mjs` again (in the background): it waits for the new CI run and merges when green. After `review.ciRounds` red runs (default 3) it stops: hand it to the human with what failed.
 
 ## Hotfix (urgent production bug)
 Only when the user asks for one (a line starting "hotfix: ..."): `node .batchship/triage.mjs hotfix <name>`, fix it in that worktree, push, open a normal PR to the live branch, wait for its CI, merge. This skips the batch. The guard allows marking ready and merging only in a session where the user asked for a hotfix.

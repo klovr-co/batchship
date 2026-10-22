@@ -120,6 +120,8 @@ test('end to end without GitHub: today, fix start/done (reused worker), eject, s
   sh('git fetch -q origin');
   assert.ok(sh(`git log --format=%s origin/${batch}`).includes('live moved'), 'ship merged the live branch in');
 
+  assert.match(fails('fix.mjs', 'start broken --repair --no-install'), /none is shipping/, 'a repair needs a batch whose PR is open');
+
   const hot = s('triage.mjs', 'hotfix "Checkout 500" --no-install');
   assert.match(hot, /HOTFIX hotfix\/checkout-500/);
   assert.equal(sh('git branch --show-current', hot.match(/work in: (.+)/)[1]), 'hotfix/checkout-500');

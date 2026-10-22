@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // One fix at a time, each on its own branch and PR into a batch. Workers keep one worktree and reuse it.
 //   fix.mjs start <name> [--batch <batch>]   branch fix/<name> from the batch (default: today's), in an idle worker worktree
+//   fix.mjs start <name> --repair [--batch <batch>]
+//                                            a fix for a batch whose PR is already open (its CI is red): it lands on that batch
 //   fix.mjs done [--title ".."] [--body ".."] [--focus ".."]
 //                                            in the fix worktree: full check, agent review, then the fix PR into the batch
 //                                            (review posted on it, light CI if the repo has any), squash-merged when it passes
@@ -23,8 +25,15 @@ const setMarker = (wt, m) => writeJson(gitPath(wt, MARKER), m);
 const node = (script, args, cwd) => spawnSync(process.execPath, [join(here, script), ...args], { cwd, stdio: 'inherit' }).status;
 export const isIdle = (wt) => !trySh('git status --porcelain', wt) && marker(wt)?.state !== 'working';
 
-function pickBatch(cwd, wanted, { config, today }) {
+function pickBatch(cwd, wanted, { config, today, repair }) {
   const batches = listBatches(cwd, { live: config.protectedBranch, soloPaths: config.soloPaths });
+  if (repair) {
+    // A repair goes onto a batch that is shipping: its PR is open, so new fixes go elsewhere but this one belongs there.
+    const shipping = batches.filter((x) => x.state === 'closing' || x.state === 'frozen');
+    const b = wanted ? shipping.find((x) => x.name === wanted || x.name === `ship/${wanted}`) : shipping.length === 1 ? shipping[0] : null;
+    if (!b) throw new Error(wanted ? `${wanted} has no open batch PR to repair` : `say which batch to repair (--batch): ${shipping.map((x) => x.name).join(', ') || 'none is shipping'}`);
+    return b.name;
+  }
   if (!wanted) return todayBatch(cwd, { batches, today, config }).batch;
   const b = batches.find((x) => x.name === wanted || x.name === `ship/${wanted}`);
   if (!b) throw new Error(`no batch ${wanted}; see triage.mjs list`);
@@ -40,10 +49,10 @@ function freeBranch(cwd, slug) {
   return b;
 }
 
-export function start(cwd, name, { batch: wanted, config, today = new Date(), install: doInstall = true }) {
+export function start(cwd, name, { batch: wanted, repair = false, config, today = new Date(), install: doInstall = true }) {
   const slug = slugify(name);
   if (!slug) throw new Error('name the fix, e.g. fix.mjs start offline-qr-pass');
-  const batch = pickBatch(cwd, wanted, { config, today });
+  const batch = pickBatch(cwd, wanted, { config, today, repair });
   const root = wtRoot(cwd);
   const workers = existsSync(root) ? readdirSync(root).filter((d) => /^worker-\d+$/.test(d)).map((d) => join(root, d)) : [];
   const cur = trySh('git rev-parse --show-toplevel', cwd);
@@ -59,10 +68,10 @@ export function start(cwd, name, { batch: wanted, config, today = new Date(), in
   sh(`git fetch -q origin ${batch}`, wt);
   const branch = freeBranch(wt, slug);
   sh(`git switch -q --no-track -c ${branch} origin/${batch}`, wt);
-  setMarker(wt, { name, slug, branch, batch, state: 'working', started: new Date().toISOString() });
+  setMarker(wt, { name, slug, branch, batch, repair, state: 'working', started: new Date().toISOString() });
   // A reused worktree only reinstalls when the dependency files changed.
   const depsChanged = fresh || !!trySh(`git diff --name-only ${before} HEAD -- '*package.json' '*lock*' 'pyproject.toml'`, wt);
-  return { batch, branch, worktree: wt, reused: !fresh, install: doInstall && depsChanged ? install(wt, config) : null };
+  return { batch, branch, repair, worktree: wt, reused: !fresh, install: doInstall && depsChanged ? install(wt, config) : null };
 }
 
 export function adopt(cwd, name, { config, today = new Date() }) {
@@ -99,10 +108,11 @@ export function done(cwd, { title, body, focus, config }) {
   if (m?.state !== 'working') throw new Error('no fix in progress here: run fix.mjs start <name> (or fix.mjs adopt <name>) first');
   if (trySh('git status --porcelain', wt)) throw new Error('commit your changes first');
   const live = config.protectedBranch;
-  // A batch that started shipping meanwhile takes no more fixes: move to today's batch.
+  // A batch that started shipping meanwhile takes no more fixes: move to today's batch. A repair stays on its batch until it merges.
   const batches = listBatches(wt, { live, soloPaths: config.soloPaths });
   const b = batches.find((x) => x.name === m.batch);
-  if (!b || whyNotJoinable(b, new Date(), config)) {
+  const staysPut = m.repair && b && b.state !== 'done';
+  if (!staysPut && (!b || whyNotJoinable(b, new Date(), config))) {
     const next = todayBatch(wt, { batches, today: new Date(), config }).batch;
     console.log(`${m.batch} is not taking fixes (${b ? whyNotJoinable(b, new Date(), config) : 'gone'}): moving this fix to ${next}`);
     m.batch = next; setMarker(wt, m);
@@ -171,7 +181,7 @@ export function eject(cwd, ref, { reason = '', config }) {
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   const args = process.argv.slice(2);
   const flag = (n) => { const i = args.indexOf(`--${n}`); return i >= 0 ? args.splice(i, 2)[1] : undefined; };
-  const opts = { batch: flag('batch'), title: flag('title'), body: flag('body'), focus: flag('focus'), reason: flag('reason'), install: !args.includes('--no-install') };
+  const opts = { repair: args.includes('--repair'), batch: flag('batch'), title: flag('title'), body: flag('body'), focus: flag('focus'), reason: flag('reason'), install: !args.includes('--no-install') };
   const [cmd, name] = args.filter((a) => !a.startsWith('--'));
   try {
     const top = sh('git rev-parse --show-toplevel');
@@ -180,6 +190,7 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href) {
       const r = start(top, name, { ...opts, config });
       console.log([`FIX ${r.branch} -> ${r.batch}${r.reused ? ' (reused worker)' : ''}`, `work in: ${r.worktree}`,
         r.install && `${r.install.ok ? 'installed' : 'INSTALL FAILED, run it by hand'}: ${r.install.cmd}`,
+        r.repair && 'A repair: when it merges, the batch PR runs CI again (ship.mjs --merge waits for it).',
         'Commit there (quick check: batch-check.mjs --quick), then run fix.mjs done.'].filter(Boolean).join('\n'));
     } else if (cmd === 'adopt') {
       const r = adopt(top, name, { config });
