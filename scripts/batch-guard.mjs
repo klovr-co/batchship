@@ -9,6 +9,19 @@ import { findRoot, loadConfig, withLivePolicy } from './config.mjs';
 
 const isBatchBranch = (b, c) => [...c.batchPrefixes, ...c.hotfixPrefixes].some((p) => b.startsWith(p));
 
+// First argument of gh pr ready/merge that names a PR or repo (a positional, or -R/--repo), skipping flag values; '' when it acts on the current branch's PR.
+const VALUE_FLAGS = ['--subject', '-t', '--body', '-b', '--body-file', '-F', '--match-head-commit', '--author-email', '-A'];
+export function prTarget(seg) {
+  const words = seg.replace(/"[^"]*"|'[^']*'/g, 'Q').split(/\s+/).slice(3);
+  for (let i = 0; i < words.length; i++) {
+    const w = words[i];
+    if (/^(-R|--repo)(=|$)/.test(w)) return w;
+    if (VALUE_FLAGS.includes(w)) i++;
+    else if (!w.startsWith('-')) return w;
+  }
+  return '';
+}
+
 const triageFirst = (b, t) => `You are on ${b}, a live branch: do not edit or commit here. Triage first: ${t} list, `
   + 'then join <batch> or new <name>, and do the work in the printed worktree (or hand it to a worker there).';
 
@@ -58,9 +71,9 @@ export function evaluate({ command = '', filePath, cwd = '.', branch, branchOf =
     if (ship && config.review?.after === 'merge') {
       const h = segDir ? headOf(segDir) : '';
       const r = segDir ? reviewOf(segDir) : null;
-      const target = seg.replace(/^gh\s+pr\s+\S+\s*/, '').split(/\s+/)[0];
+      const target = prTarget(seg);
       if (/--admin\b/.test(seg)) out.push('Do not use --admin: merge only through the normal checks.');
-      else if (target && !target.startsWith('-')) out.push(`Run gh pr ${ship} without a PR number or branch, from inside the batch worktree, so it acts on that batch's own PR.`);
+      else if (target) out.push(`Run gh pr ${ship} without a PR number, branch or --repo (found ${target}), from inside the batch worktree, so it acts on that batch's own PR.`);
       else if (!known || !isBatchBranch(branch, config)) out.push(`Run gh pr ${ship} from inside the batch worktree (${config.batchPrefixes[0]}*), so the guard can see its review.`);
       else if (markerOf(segDir) !== h) out.push('No passing batch-check for HEAD. Run: node .batchship/batch-check.mjs');
       else if (!(r?.pass && r.head === h)) out.push('No passing review for HEAD. Run: node .batchship/review.mjs, fix blocker/major findings, then retry.');

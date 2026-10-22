@@ -61,6 +61,10 @@ test("after: 'merge': ready and merge only from a batch whose HEAD passed check 
   assert.deepEqual(run('gh pr merge --squash --subject "Batch: x"', passed), []);
   assert.match(run('gh pr merge 12 --squash', passed)[0], /without a PR number/);
   assert.match(run('gh pr merge --squash --admin', passed)[0], /--admin/);
+  assert.match(run('gh pr merge --squash 123', passed)[0], /found 123/);
+  assert.match(run('gh pr merge --delete-branch ship/other', passed)[0], /found ship\/other/);
+  assert.match(run('gh pr ready -R other/repo', passed)[0], /found -R/);
+  assert.deepEqual(run('gh pr merge --squash --subject "Fix 12 things" --body \'x y\' --delete-branch', passed), []);
   assert.match(run('gh pr merge', { ...passed, review: { head: 'old', pass: true } })[0], /No passing review/);
   assert.match(run('gh pr merge', { ...passed, review: { head: 'abc', pass: false } })[0], /No passing review/);
   assert.match(run('gh pr ready', { ...passed, marker: '' })[0], /batch-check/);

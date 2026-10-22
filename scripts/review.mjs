@@ -6,7 +6,7 @@
 import { execSync, spawn } from 'node:child_process';
 import { readFileSync, writeFileSync, existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { loadConfig, withLivePolicy } from './config.mjs';
 
@@ -40,13 +40,13 @@ export function parseReviewer(spec, env = process.env) {
 }
 
 // Command line per harness, kept read-only: claude gets file-reading tools only, codex runs in its read-only sandbox, agy in plan mode.
-export function commandFor({ harness, model, cmd }, prompt, schemaPath, outPath) {
+export function commandFor({ harness, model, cmd }, prompt, schemaPath, outPath, patchDir) {
   if (cmd) return { file: cmd, args: [], shell: true, stdin: prompt };
   const m = (flag) => (model ? [flag, model] : []);
   if (harness === 'claude') return { file: 'claude', args: ['-p', prompt, '--output-format', 'json', '--json-schema', JSON.stringify(SCHEMA),
-    '--tools', 'Read,Grep,Glob', ...m('--model')] };
+    '--tools', 'Read,Grep,Glob', ...(patchDir ? ['--add-dir', patchDir] : []), ...m('--model')] };
   if (harness === 'codex') return { file: 'codex', args: ['exec', '-s', 'read-only', '--ephemeral', '--skip-git-repo-check', '--output-schema', schemaPath, '-o', outPath, ...m('-m'), prompt], out: outPath };
-  return { file: 'agy', args: ['-p', prompt, '--mode', 'plan', '--sandbox', '--output-format', 'json', '--json-schema', schemaPath, ...m('--model')] };
+  return { file: 'agy', args: ['-p', prompt, '--mode', 'plan', '--sandbox', '--output-format', 'json', '--json-schema', schemaPath, ...(patchDir ? ['--add-dir', patchDir] : []), ...m('--model')] };
 }
 
 // Finds the verdict object in whatever a reviewer printed: plain JSON, a wrapper ({result} / {structured_output}), or JSON inside prose or a code fence.
@@ -87,11 +87,15 @@ export function buildPrompt({ branch, live, focus, patch = '', patchFile, maxDif
   ].filter(Boolean).join('\n\n');
 }
 
-function run(reviewer, prompt, dir, timeoutMs) {
+// Reviewer process groups still running, so Ctrl-C on review.mjs stops them too.
+const running = new Set();
+const stopAll = () => { for (const pid of running) try { process.kill(-pid, 'SIGTERM'); } catch {} };
+
+function run(reviewer, prompt, dir, timeoutMs, patchDir) {
   const tmp = mkdtempSync(join(tmpdir(), 'batchship-review-'));
   const schemaPath = join(tmp, 'schema.json');
   writeFileSync(schemaPath, JSON.stringify(SCHEMA));
-  const c = commandFor(reviewer, prompt, schemaPath, join(tmp, 'out.txt'));
+  const c = commandFor(reviewer, prompt, schemaPath, join(tmp, 'out.txt'), patchDir);
   // A reviewer started from inside Claude Code must not look like a nested interactive session.
   const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => k !== 'CLAUDECODE' && !/^CLAUDE_CODE_(SESSION|CHILD|MESSAGING|ENTRYPOINT)/.test(k)));
   return new Promise((done) => {
@@ -99,11 +103,13 @@ function run(reviewer, prompt, dir, timeoutMs) {
     let out = '', err = '';
     p.stdout.on('data', (d) => (out += d));
     p.stderr.on('data', (d) => (err += d));
+    running.add(p.pid);
     p.stdin.end(c.stdin || '');
     // Own process group, so a timeout also stops whatever the reviewer started.
     const timer = setTimeout(() => { try { process.kill(-p.pid, 'SIGTERM'); } catch {} }, timeoutMs);
     const finish = (error) => {
       clearTimeout(timer);
+      running.delete(p.pid);
       const text = c.out && existsSync(c.out) ? readFileSync(c.out, 'utf8') : out;
       rmSync(tmp, { recursive: true, force: true });
       const v = error ? null : extractVerdict(text);
@@ -123,6 +129,7 @@ const readJson = (p) => { try { return JSON.parse(readFileSync(p, 'utf8')); } ca
 // Commits that only merge the live branch in carry nothing new, so they pass without a reviewer.
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   const top = git('rev-parse --show-toplevel');
+  tryGit(`fetch -q origin ${loadConfig(top).protectedBranch}`); // fresh live policy and base
   const config = withLivePolicy(top, loadConfig(top)); // a batch cannot switch its own review off
   const { reviewers, rounds, timeoutMinutes, focus: baseFocus } = config.review;
   const live = config.protectedBranch;
@@ -146,12 +153,13 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   let parsed;
   try { parsed = reviewers.map((r) => parseReviewer(r)); } catch (e) { console.error(e.message); process.exit(2); }
   const patch = git(`log -p --first-parent --no-merges --format="commit %h %s" ${range}`);
-  const patchFile = git('rev-parse --path-format=absolute --git-path batchship-review.patch');
+  const patchFile = resolve(git('rev-parse --git-path batchship-review.patch'));
   writeFileSync(patchFile, patch);
   const prompt = buildPrompt({ branch, live, patch, patchFile, focus: [baseFocus, arg('focus')].filter(Boolean).join(' ') });
   const count = git(`rev-list --count --first-parent --no-merges ${range}`);
   console.log(`Reviewing ${count} new commit(s) on ${branch} with ${parsed.map((r) => r.name).join(', ')} ...`);
-  const results = await Promise.all(parsed.map((r) => run(r, prompt, process.cwd(), timeoutMinutes * 60000)));
+  for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { stopAll(); process.exit(130); });
+  const results = await Promise.all(parsed.map((r) => run(r, prompt, process.cwd(), timeoutMinutes * 60000, dirname(patchFile))));
   const failed = results.filter((r) => !r.ok);
   const open = results.filter((r) => r.ok).flatMap((r) => blocking(r.findings));
   const pass = !failed.length && !open.length;
