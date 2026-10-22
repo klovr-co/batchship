@@ -64,7 +64,7 @@ export function evaluate({ command = '', filePath, cwd = '.', branch, branchOf =
     if (/review\.mjs\b.*--force\b/.test(seg)) out.push('Only the human re-opens review (--force). Stop and hand the fix over with the open findings.');
     // Each unlock opens only its own path: "hotfix" for hotfix/* branches, "ship" for batches.
     const may = (b) => (b && config.hotfixPrefixes.some((p) => b.startsWith(p)) ? unlocked.has('hotfix') : b && isShip(b) ? unlocked.has('ship') : false);
-    if (/ship\.mjs\b.*--merge\b/.test(seg) && !unlocked.has('ship')) out.push('ship.mjs --merge needs the user to ask for it ("ship when done", "then ship"). Otherwise ship.mjs opens the batch PR as a draft for the human.');
+    if (/ship\.mjs\b.*--merge\b/.test(seg) && !unlocked.has('ship')) out.push('ship.mjs --merge needs the user to ask for it ("ship when done", "then ship"). Otherwise run plain ship.mjs: it follows review.after from the live branch.');
     // Marking ready and merging are the human's, unless the user asked for a hotfix or to ship in this session.
     const act = /^gh\s+pr\s+(ready|merge)\b/.exec(seg)?.[1];
     if (act && /--admin\b/.test(seg)) out.push('Do not use --admin: merge only through the normal checks.');

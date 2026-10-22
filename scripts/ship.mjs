@@ -3,9 +3,9 @@
 //   ship.mjs [<batch>] [--merge]
 // Merges the live branch into the batch, runs the full check and an advisory review of the whole batch, pushes, and opens
 // (or updates) the batch PR as a draft listing every fix. Open fix PRs still aimed at the batch move to today's batch.
-// Then: review.after "human" (default) stops for the human to mark it ready and merge. review.after "merge" (from the live
-// branch's .ship.json), or --merge when the user asked to ship once their fixes are done, marks it ready, waits for CI and merges
-// with a merge commit.
+// Then: review.after "merge" (default, from the live branch's .ship.json), or --merge when the user asked to ship once their fixes
+// are done, marks it ready, waits for CI and merges with a merge commit. It stops at the draft when the whole-batch review finds a
+// blocker or major issue. review.after "human" stops for the human to mark it ready and merge.
 // Waiting for CI takes as long as the CI run: start it in the background.
 import { spawnSync } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
@@ -86,6 +86,9 @@ export function ship(cwd, wanted, { merge = false }) {
   }
   const auto = merge || config.review.after === 'merge';
   if (!auto) return { batch: b.name, pr, title, moved, merged: false };
+  // Each fix passed its own review; the whole-batch review only stops the merge when the fixes break each other.
+  const held = (readJson(out) || []).filter((r) => r.ok).flatMap((r) => r.findings || []).filter((f) => f.severity === 'blocker' || f.severity === 'major');
+  if (held.length) return { batch: b.name, pr, title, moved, merged: false, held: held.length };
   sh(`gh pr ready ${pr}`, bw);
   console.log(`\n== waiting for CI on #${pr}`);
   spawnSync('sleep', ['15']);
@@ -102,7 +105,9 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href) {
     const r = ship(sh('git rev-parse --show-toplevel'), wanted, { merge: args.includes('--merge') });
     if (r.local) console.log(`\nSHIPPED ${r.batch} locally (no GitHub remote): merge it into the live branch with a merge commit.`);
     else console.log([`\nBATCH PR #${r.pr}: ${r.title}`, r.moved.length && `moved open fix PRs: ${r.moved.join(', ')}`,
-      r.merged ? 'CI green: merged with a merge commit.' : 'Draft: the human marks it ready (one CI run) and merges it with a merge commit.'].filter(Boolean).join('\n'));
+      r.merged ? 'CI green: merged with a merge commit.'
+        : r.held ? `Left as a draft: the whole-batch review found ${r.held} blocker/major issue(s), listed on the PR. Fix forward with a fix PR, or the human marks it ready and merges.`
+        : 'Draft: the human marks it ready (one CI run) and merges it with a merge commit.'].filter(Boolean).join('\n'));
   } catch (e) {
     console.error(`ship: ${e.stderr?.toString().trim() || e.message}`);
     process.exit(e.code || 1);

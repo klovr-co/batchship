@@ -47,8 +47,8 @@ flowchart TD
     end
     PR --> SH["ship: merge live in, full check, advisory review of the whole batch<br/>batch PR to live (draft) listing every fix PR"]
     SH --> A{"review.after, or you said 'ship when done'"}
-    A -- "human (default)" --> Y["You mark ready: ONE CI run, merge with a merge commit"]
-    A -- "merge / ship when done" --> AU["after your last fix: ship.mjs --merge marks ready, waits for CI, merges"]
+    A -- "merge (default) / ship when done" --> AU["ship.mjs marks ready, ONE CI run, merges with a merge commit<br/>stays draft if the batch review finds a blocker"]
+    A -- "human" --> Y["You mark ready: ONE CI run, merge with a merge commit"]
     HF["User says 'hotfix': hotfix/NAME, normal PR to live, merge after CI"] -.-> LIVE["live branch, deploy"]
     Y --> LIVE
     AU --> LIVE
@@ -65,7 +65,7 @@ Red batch CI: re-run only the failed jobs for runner or flaky failures; for a re
 | `fix.mjs done [--title ..] [--focus ..]` | Worker | Full check, agent review, fix PR into the batch with the review on it, squash-merge |
 | `fix.mjs adopt <name>` | Worker | Make the branch you are on a fix for today's batch |
 | `triage.mjs new <name> --reason ".."` | Your thread | A separate batch, with the reason recorded in its PR |
-| `ship.mjs [<batch>] [--merge]` | Your thread | The batch PR to the live branch; `--merge` (when you asked to ship) marks ready, waits for CI, merges |
+| `ship.mjs [<batch>] [--merge]` | Your thread | The batch PR to the live branch; with `review.after: merge` (default) it marks it ready, waits for CI and merges. `--merge` (when you asked to ship) does so even under `human` |
 | `fix.mjs eject <PR>` | Your thread | Revert one fix out of its batch |
 | `triage.mjs hotfix <name>` | Your thread | `hotfix/<name>` from the live branch: a normal PR, merged after CI, when you asked for a hotfix |
 
@@ -89,7 +89,7 @@ A prompt hook records the request for that session for two hours, and each one o
 | `setup` | auto | Command run in a new worker or hotfix worktree; default installs with the detected package manager |
 | `review.reviewers` | `["same"]` | Agents that review each fix before it joins the batch, in parallel and read-only: `same` (the agent's own harness), `claude`, `codex`, `agy`, each optionally `:model`, or `{ "name", "cmd" }`. `[]` turns review off |
 | `review.rounds` | `2` | Failed reviews in a row before the fix goes back to you |
-| `review.after` | `human` | `human`: the batch PR waits for you. `merge`: ship.mjs marks it ready, waits for CI and merges. Read from the live branch, so a batch cannot change it |
+| `review.after` | `merge` | `merge`: ship.mjs marks the batch PR ready, waits for CI and merges it, unless the whole-batch review finds a blocker or major issue. `human`: the batch PR waits for you. Read from the live branch, so a batch cannot change it |
 | `review.focus` | `""` | Extra review instructions for every fix |
 | `review.timeoutMinutes` | `20` | Per reviewer |
 

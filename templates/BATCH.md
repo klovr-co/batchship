@@ -19,10 +19,10 @@ Already working on your own branch (e.g. a T3 thread's worktree)? `node .batchsh
 
 ## Shipping a batch
 `node .batchship/ship.mjs [<batch>]`: merges the live branch in, runs the full check and an advisory review of the whole batch (how fixes interact, merge resolutions), and opens the batch PR to the live branch as a draft, listing every fix PR. Open fix PRs still aimed at it move to today's batch.
-- `review.after: "human"` (default): the human marks it ready (CI runs once) and merges it with a **merge commit**, so each fix stays its own commit on the live branch.
-- `review.after: "merge"`: ship.mjs marks it ready, waits for CI and merges. It takes as long as CI: run it in the background.
+- `review.after: "merge"` (default): ship.mjs marks it ready, waits for the one CI run and merges it with a **merge commit**, so each fix stays its own commit on the live branch. It takes as long as CI: run it in the background. If the whole-batch review finds a blocker or major issue, it stays a draft for the human.
+- `review.after: "human"`: the human marks it ready (CI runs once) and merges it.
 
-Batches ship once a day by default. When the user asks to ship once their work is done ("... then ship when done"), finish every fix they gave in the session, check none is still open, then run `node .batchship/ship.mjs --merge` in the background: it opens the batch PR, marks it ready, waits for CI and merges it. Fixes other sessions still have open move to the next batch.
+Batches ship once a day by default. When the user asks to ship once their work is done ("... then ship when done"), finish every fix they gave in the session, check none is still open, then run `node .batchship/ship.mjs --merge` in the background: it opens the batch PR, marks it ready, waits for CI and merges it (`--merge` also overrides `review.after: "human"`). Fixes other sessions still have open move to the next batch.
 
 ## Red CI on a batch
 1. A runner lost, a timeout, or a test that also fails on the live branch: re-run only the failed jobs (`gh run rerun <run> --failed`).

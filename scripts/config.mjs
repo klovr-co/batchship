@@ -16,7 +16,7 @@ export const DEFAULTS = {
   review: {
     reviewers: ['same'], // 'same' (the agent's own harness), 'claude', 'codex', 'agy', each optionally ':model'; or { name, cmd }. [] turns review off
     rounds: 2,           // review runs per batch before it goes back to the human
-    after: 'human',      // 'human': stop at the draft PR. 'merge': once review and checks pass, the agent marks it ready, waits for CI, merges
+    after: 'merge',      // 'merge': when the batch ships, ship.mjs marks the batch PR ready, waits for CI and merges it (each fix already passed its review). 'human': stop at the draft PR
     timeoutMinutes: 20,
     focus: '',           // extra review instructions for every batch
   },
