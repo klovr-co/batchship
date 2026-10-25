@@ -7,7 +7,7 @@ import { readFileSync, existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { findRoot, loadConfig, withLivePolicy } from './config.mjs';
-import { unlocked as unlockedFor } from './lib.mjs';
+import { unlocked as unlockedFor, usesMergify } from './lib.mjs';
 
 const isBatchBranch = (b, c) => [...c.batchPrefixes, ...c.hotfixPrefixes].some((p) => b.startsWith(p));
 
@@ -17,8 +17,9 @@ const triageFirst = (b, cmd) => `You are on ${b}, a live branch: do not edit or 
 // branchOf/headOf/markerOf(dir) read the git state of the directory a command runs in; tests may pass fixed values instead.
 // unlocked: what the user asked for in this session ('hotfix', 'ship'), recorded from their own prompt by intent.mjs.
 // cmd(script): how to run a batchship script here (the repo's .batchship copy, or the plugin's when the repo has none yet).
+// mergify: the repo merges into the live branch through the Mergify queue, so nobody merges those PRs by hand.
 export function evaluate({ command = '', filePath, cwd = '.', branch, branchOf = () => branch, head, headOf = () => head, marker, markerOf = () => marker,
-  config, unlocked = new Set(), cmd = (f) => `node .batchship/${f}` }) {
+  config, unlocked = new Set(), cmd = (f) => `node .batchship/${f}`, mergify = false }) {
   const out = [];
   const prot = config.protectedBranch;
   const manual = config.manualBranches || [];
@@ -68,6 +69,7 @@ export function evaluate({ command = '', filePath, cwd = '.', branch, branchOf =
     // Marking ready and merging are the human's, unless the user asked for a hotfix or to ship in this session.
     const act = /^gh\s+pr\s+(ready|merge)\b/.exec(seg)?.[1];
     if (act && /--admin\b/.test(seg)) out.push('Do not use --admin: merge only through the normal checks.');
+    else if (act === 'merge' && mergify) out.push(`The Mergify queue merges PRs into ${prot}: batches are queued by ${cmd('ship.mjs')}; a hotfix the user asked for: gh pr ready, then gh pr comment <PR> --body '@mergifyio queue'.`);
     else if (act && !may(branch)) out.push(unlocked.size ? `With "${[...unlocked].join('", "')}" from the user, gh pr ${act} works only from the ${unlocked.has('hotfix') ? 'hotfix' : 'batch'} worktree it is for (here: ${branch || 'unknown'}).` : act === 'ready'
       ? 'Marking a PR ready starts CI (the paid step): leave it to the human, unless they ask for a hotfix or to ship. Batches ship with ship.mjs.'
       : 'Merging is the human\'s, unless they ask for a hotfix or to ship. Fixes merge into batches through fix.mjs done.');
@@ -132,7 +134,7 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   const cmd = (f) => (existsSync(resolve(root, '.batchship', f)) ? `node .batchship/${f}` : `node "${resolve(import.meta.dirname, f)}"`);
   let unlocked = new Set();
   try { unlocked = unlockedFor(root, input.session_id ?? 'none'); } catch {}
-  const problems = evaluate({ command, filePath, cwd, branchOf, headOf, markerOf, config, unlocked, cmd });
+  const problems = evaluate({ command, filePath, cwd, branchOf, headOf, markerOf, config, unlocked, cmd, mergify: usesMergify(root, config) });
   // A repo whose .batchship copy is older than this plugin gets one line saying so.
   const v = (f) => { try { return JSON.parse(readFileSync(f, 'utf8')).version; } catch { return ''; } };
   const mine = v(resolve(import.meta.dirname, '../plugin.json')), theirs = existsSync(resolve(root, '.batchship/VERSION')) ? readFileSync(resolve(root, '.batchship/VERSION'), 'utf8').trim() : '0';

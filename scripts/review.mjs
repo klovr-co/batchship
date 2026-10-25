@@ -70,6 +70,24 @@ export function extractVerdict(text) {
   return fromText(String(text));
 }
 
+// A risky change gets review.riskyReviewers (when set) instead of review.reviewers: it touches soloPaths or review.riskyPaths,
+// or changes more than review.riskyLines lines. Small, ordinary fixes keep the cheaper list.
+export function pickReviewers(review, { files = [], lines = 0, soloPaths = [] }) {
+  const paths = [...soloPaths, ...(review.riskyPaths || [])];
+  const hit = files.find((f) => paths.some((p) => f.startsWith(p)));
+  const big = review.riskyLines > 0 && lines > review.riskyLines;
+  const risky = !!hit || big;
+  const why = hit ? `touches ${hit}` : big ? `${lines} changed lines` : '';
+  return { reviewers: risky && review.riskyReviewers?.length ? review.riskyReviewers : review.reviewers, risky, why };
+}
+
+// Changed files and lines (added + deleted) in a git diff range.
+function diffSize(range) {
+  const files = tryGit(`diff --name-only ${range}`).split('\n').filter(Boolean);
+  const lines = tryGit(`diff --numstat ${range}`).split('\n').reduce((n, l) => { const [a, d] = l.split('\t'); return n + (+a || 0) + (+d || 0); }, 0);
+  return { files, lines };
+}
+
 // Blockers and majors hold the batch back whatever the reviewer's own verdict says; minors are reported only.
 export const blocking = (findings) => findings.filter((f) => f.severity === 'blocker' || f.severity === 'major');
 
@@ -135,7 +153,13 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   const top = git('rev-parse --show-toplevel');
   tryGit(`fetch -q origin ${loadConfig(top).protectedBranch}`); // fresh live policy and base
   const config = withLivePolicy(top, loadConfig(top)); // a batch cannot switch its own review off
-  const { reviewers, rounds, timeoutMinutes, focus: baseFocus } = config.review;
+  const { rounds, timeoutMinutes, focus: baseFocus } = config.review;
+  let { reviewers } = config.review;
+  const choose = (range) => {
+    const p = pickReviewers(config.review, { ...diffSize(range), soloPaths: config.soloPaths });
+    if (p.risky) console.log(`Risky change (${p.why}): reviewers ${JSON.stringify(p.reviewers)}.`);
+    return p.reviewers;
+  };
   const live = config.protectedBranch;
   const force = process.argv.includes('--force');
   const arg = (n) => { const i = process.argv.indexOf(`--${n}`); return i > 0 ? process.argv[i + 1] : undefined; };
@@ -155,6 +179,7 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   if (!reviewers?.length) { if (outFile) writeFileSync(outFile, '[]'); console.log('review.reviewers is empty in .ship.json: review is off.'); process.exit(0); }
   for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { stopAll(); process.exit(130); });
   if (process.argv.includes('--advisory')) {
+    reviewers = choose(`${baseRef}...HEAD`);
     let parsed;
     try { parsed = reviewers.map((r) => parseReviewer(r)); } catch (e) { console.error(e.message); process.exit(2); }
     const patch = git(`diff ${baseRef}...HEAD`);
@@ -176,6 +201,7 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   if (failures >= rounds && prev.head !== head && !force) {
     console.error(`Review failed ${failures} times since the last pass (review.rounds is ${rounds}). Stop and hand the batch to the human with the open findings.`); process.exit(1);
   }
+  reviewers = choose(range);
   let parsed;
   try { parsed = reviewers.map((r) => parseReviewer(r)); } catch (e) { console.error(e.message); process.exit(2); }
   const patch = git(`log -p --first-parent --no-merges --format="commit %h %s" ${range}`);

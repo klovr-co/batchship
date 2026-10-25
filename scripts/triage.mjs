@@ -4,12 +4,13 @@
 //   triage.mjs today                       today's batch ship/day-<YYYYMMDD>, created from the live branch if missing
 //   triage.mjs new <name> --reason "..."   a separate batch ship/<name>-<YYYYMMDD>; needs a reason (soloPaths, batch full, the user asked)
 //   triage.mjs hotfix <name>               hotfix/<name> from the live branch in its own worktree: a normal PR to the live branch
+//   triage.mjs prune [--apply]             worktrees whose branch's PR has merged and that hold no uncommitted work; --apply removes them
 // Then work on fixes with fix.mjs (start, done) and ship a batch with ship.mjs.
 // Options: --json, --no-install (hotfix: skip installing dependencies)
 import { existsSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { loadConfig } from './config.mjs';
-import { sh, trySh, lines, q, ymd, slugify, worktrees, wtPath, install } from './lib.mjs';
+import { sh, trySh, lines, q, ymd, slugify, worktrees, wtPath, install, usesMergify } from './lib.mjs';
 export { ymd, slugify } from './lib.mjs';
 
 const DAY = 86_400_000;
@@ -103,6 +104,25 @@ export function hotfix(cwd, name, { config, install: doInstall = true }) {
   return { action: 'hotfix', batch: branch, worktree: path, install: doInstall ? install(path, config) : null };
 }
 
+// Worktrees safe to remove: not the main checkout, not a reused worker, branch merged through a PR, nothing uncommitted,
+// and no local commit that only this branch holds (kept: the tip is the merged PR's head, or a remote branch has it).
+export function pruneCandidates(wts, { main, merged, dirty, kept = () => true }) {
+  return wts.filter((w) => w.path !== main && w.branch && !/\/worker-\d+$/.test(w.path) && merged.has(w.branch) && !dirty(w.path) && kept(w));
+}
+
+export function prune(cwd, { apply = false }) {
+  const main = sh('git worktree list --porcelain', cwd).split('\n')[0].slice(9);
+  const wts = Object.entries(worktrees(cwd)).filter(([b]) => !b.startsWith('(detached)')).map(([branch, path]) => ({ branch, path }));
+  let prs = [];
+  try { prs = JSON.parse(trySh('gh pr list --state merged --limit 500 --json headRefName,headRefOid', cwd) || '[]'); } catch {}
+  const merged = new Set(prs.map((p) => p.headRefName));
+  const heads = new Set(prs.map((p) => p.headRefOid));
+  const kept = (w) => { const tip = trySh(`git rev-parse ${q(w.branch)}`, cwd); return heads.has(tip) || !!trySh(`git branch -r --contains ${tip}`, cwd); };
+  const gone = pruneCandidates(wts, { main, merged, kept, dirty: (p) => !existsSync(p) || !!trySh('git status --porcelain', p) });
+  if (apply) for (const w of gone) { trySh(`git worktree remove ${q(w.path)}`, cwd); trySh(`git branch -D ${q(w.branch)}`, cwd); }
+  return { action: 'prune', removed: apply, worktrees: gone };
+}
+
 function show(b, today, config) {
   const age = ageDays(b.created, today);
   const why = whyNotJoinable(b, today, config);
@@ -135,14 +155,23 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href) {
       else console.log([open.map((b) => show(b, today, config)).join('\n\n') || 'no open batches',
         `\n${paying} batch(es) with fixes = ${paying} full CI run(s) when shipped, plus ${paying} on ${config.protectedBranch} after merging. New work joins today's batch (fix.mjs start <name>).`].join('\n'));
     } else {
+      if (cmd === 'prune') {
+        const r = prune(cwd, { apply: args.includes('--apply') });
+        console.log(json ? JSON.stringify(r, null, 2) : r.worktrees.length
+          ? `${r.removed ? 'Removed' : 'Would remove (run with --apply)'}:\n${r.worktrees.map((w) => `  ${w.branch}  ${w.path}`).join('\n')}`
+          : 'Nothing to prune: no clean worktree with a merged branch.');
+        process.exit(0);
+      }
       const act = { today: todayBatch, new: newBatch, hotfix }[cmd];
-      if (!act) throw new Error(`unknown command ${cmd}; use list, today, new <name> --reason "...", or hotfix <name>`);
+      if (!act) throw new Error(`unknown command ${cmd}; use list, today, new <name> --reason "...", hotfix <name>, or prune [--apply]`);
       const r = cmd === 'today' ? act(cwd, opts) : act(cwd, name, opts);
       console.log(json ? JSON.stringify(r, null, 2) : [
         `${r.action.toUpperCase()} ${r.batch}${r.created ? ' (created)' : ''}`,
         r.worktree && `work in: ${r.worktree}`,
         r.install && `${r.install.ok ? 'installed' : 'INSTALL FAILED, run it by hand'}: ${r.install.cmd}`,
-        r.action === 'hotfix' && `Commit there, push, then open a normal PR to ${config.protectedBranch}. Marking it ready and merging is allowed only when the user asked for a hotfix in this session.`,
+        r.action === 'hotfix' && (usesMergify(cwd, config)
+          ? `Commit there, push, then open a normal PR to ${config.protectedBranch}, mark it ready and queue it: gh pr comment <PR> --body '@mergifyio queue' (the queue merges it after CI, ahead of batches). Allowed only when the user asked for a hotfix in this session.`
+          : `Commit there, push, then open a normal PR to ${config.protectedBranch}. Marking it ready and merging is allowed only when the user asked for a hotfix in this session.`),
       ].filter(Boolean).join('\n'));
     }
   } catch (e) {

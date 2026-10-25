@@ -54,7 +54,32 @@ flowchart TD
     AU --> LIVE
 ```
 
-Red batch CI: re-run only the failed jobs for runner or flaky failures; for a real failure, `git bisect run <test>` over the batch (one commit per fix) finds the fix, then repair it (`fix.mjs start <name> --repair`: reviewed like any fix, lands on the shipping batch) or `fix.mjs eject <PR>`, and ship again. ship.mjs stops after `review.ciRounds` red runs and hands it to you.
+### With the Mergify merge queue
+
+If the repo has `.mergify.yml` (or `mergeVia: "mergify"`), ship.mjs does not merge the batch PR itself. It marks it ready and comments `@mergifyio queue`. Mergify brings the batch up to date with the live branch when it moved (a merge commit, so `ship/*` history is never rewritten), waits for CI and merges it. A PR Mergify takes out of the queue counts as red CI: the same repair loop runs. The guard denies `gh pr merge` to agents in such a repo; a hotfix is queued with `@mergifyio queue` too. Use `merge_method: merge` in the queue rule so each fix stays its own commit for `git bisect`, and queue `hotfix/*` ahead of `ship/*`:
+
+```yaml
+merge_queue: { max_parallel_checks: 1, mode: serial }   # checks run in place on the PR
+queue_rules:
+  - name: hotfix
+    queue_conditions: [base = staging, head ~= ^hotfix/, -draft, check-success = CI]
+    merge_conditions: [base = staging, head ~= ^hotfix/, -draft, check-success = CI]
+    merge_method: merge
+    update_method: merge
+  - name: batches
+    queue_conditions: [base = staging, head ~= ^ship/, -draft, check-success = CI]
+    merge_conditions: [base = staging, head ~= ^ship/, -draft, check-success = CI]
+    merge_method: merge
+    update_method: merge
+priority_rules:
+  - { name: hotfix, conditions: [head ~= ^hotfix/], priority: high }
+```
+
+Mergify reads `.mergify.yml` from the repo's default branch.
+
+### Red batch CI
+
+Red batch CI: re-run only the failed jobs for runner or flaky failures; for a real failure, `git bisect run <test>` over the batch (one commit per fix) finds the fix, then repair it (`fix.mjs start <name> --repair`: reviewed like any fix, lands on the shipping batch) or `fix.mjs eject <PR>`, and ship again. ship.mjs stops after `review.ciRounds` red runs and hands it to you. A blocker from the whole-batch review is repaired the same way, `review.batchRepairRounds` times. The agent hands it to you at once when the repair would touch `soloPaths`, change more than about 5 files or 200 lines, need a migration, a secret or a CI change, or when the failure also happens on the live branch.
 
 ## Commands
 
@@ -68,6 +93,7 @@ Red batch CI: re-run only the failed jobs for runner or flaky failures; for a re
 | `ship.mjs [<batch>] [--merge]` | Your thread | The batch PR to the live branch; with `review.after: merge` (default) it marks it ready, waits for CI and merges. `--merge` (when you asked to ship) does so even under `human` |
 | `fix.mjs eject <PR>` | Your thread | Revert one fix out of its batch |
 | `triage.mjs hotfix <name>` | Your thread | `hotfix/<name>` from the live branch: a normal PR, merged after CI, when you asked for a hotfix |
+| `triage.mjs prune [--apply]` | Your thread | Worktrees whose branch's PR merged, with nothing uncommitted or unpushed; `--apply` removes them |
 
 Batches ship once a day by default. Two ways to go faster, in a Claude Code session:
 - **Ship when done:** give your list and add "then ship when done" (or "ship after these", "ship it once they're finished"). Your thread finishes every fix, then ships the batch: ready, one CI run, merge.
@@ -87,12 +113,19 @@ A prompt hook records the request for that session for two hours, and each one o
 | `batchMaxFiles` | `40` | Changed files (lockfiles aside) at which a batch is full; `0` = no cap |
 | `soloPaths` | `[]` | Path prefixes (e.g. `[".github/"]`) that must ship in a batch of their own |
 | `setup` | auto | Command run in a new worker or hotfix worktree; default installs with the detected package manager |
+| `mergeVia` | `auto` | Who merges a batch PR into the live branch: `gh` (ship.mjs), `mergify` (the Mergify queue), `auto` = `mergify` when the repo has `.mergify.yml` |
+| `checks[].shipOnly` | `false` | Skip this check per fix (`fix.mjs done`); it runs once when the batch ships. For slow checks such as a whole-app typecheck |
 | `review.reviewers` | `["same"]` | Agents that review each fix before it joins the batch, in parallel and read-only: `same` (the agent's own harness), `claude`, `codex`, `agy`, each optionally `:model`, or `{ "name", "cmd" }`. `[]` turns review off |
+| `review.riskyReviewers` | `null` | Reviewers for a risky fix (touches `soloPaths` or `review.riskyPaths`, or more than `review.riskyLines` changed lines); `null` = `reviewers`. Lets small fixes use one reviewer and risky ones two |
+| `review.riskyPaths` | `[]` | Extra path prefixes that make a fix risky |
+| `review.riskyLines` | `400` | Changed lines above which a fix is risky; `0` = size never does |
 | `review.rounds` | `2` | Failed reviews in a row before the fix goes back to you |
 | `review.after` | `merge` | `merge`: when you asked to ship (or run it yourself), ship.mjs marks the batch PR ready, waits for CI and merges it, unless the whole-batch review finds a blocker or major issue. `human`: the batch PR waits for you. Read from the live branch, so a batch cannot change it |
 | `review.focus` | `""` | Extra review instructions for every fix |
 | `review.timeoutMinutes` | `20` | Per reviewer |
 | `review.ciRounds` | `3` | Red CI runs on a batch PR before ship.mjs stops and hands it to you |
+| `review.batchRepairRounds` | `1` | Times a blocker from the whole-batch review goes to a repair fix before the batch PR waits for you |
+| `review.queueTimeoutMinutes` | `120` | With Mergify: how long ship.mjs waits for the queue |
 
 ## What each layer covers
 

@@ -109,3 +109,33 @@ export function unlocked(cwd, session, now = Date.now()) {
   const live = Object.entries(all).filter(([s, v]) => v.until > now && s === (session || 'none'));
   return new Set(live.flatMap(([, v]) => v.kinds));
 }
+
+// Mergify: when the repo uses its merge queue, the queue merges batch PRs into the live branch, not ship.mjs.
+// It tests each PR against the newest live branch first, so a batch never lands on code it was not tested with.
+export const usesMergify = (cwd, config) => config.mergeVia === 'mergify' || (config.mergeVia !== 'gh' && existsSync(join(cwd, '.mergify.yml')));
+
+// The newest queue state Mergify wrote on a PR, from the JSON payload in its comments:
+// { state: 'queued' | 'checking' | 'dequeued' | ..., left_at?, dequeue_reason?: { code, label, checks } }. null when none.
+export function mergifyState(comments = []) {
+  for (const c of [...comments].reverse()) {
+    if (!/mergify/i.test(c.author?.login || '')) continue;
+    const m = String(c.body || '').match(/-\*- Mergify Payload -\*-\s*([\s\S]*?)\s*-\*- Mergify Payload End -\*-/);
+    if (!m) continue;
+    try { return JSON.parse(m[1]); } catch {}
+  }
+  return null;
+}
+
+// Where a queued PR stands, from `gh pr view --json state,comments`: merged, still going, or out of the queue after `since` (ms).
+export function queueOutcome(view, since) {
+  if (view.state === 'MERGED') return { done: 'merged' };
+  if (view.state === 'CLOSED') return { done: 'closed' };
+  const s = mergifyState(view.comments);
+  if (s?.state === 'dequeued' && Date.parse(s.left_at || 0) >= since)
+    return { done: 'dequeued', reason: s.dequeue_reason?.label || s.dequeue_reason?.code || 'left the queue', checks: s.dequeue_reason?.checks || [] };
+  return { done: null, state: s?.state || 'waiting' };
+}
+
+// When a repair is the human's, not the agent's: what ship.mjs tells the agent before it starts one.
+export const ESCALATE = 'Hand it to the human instead of repairing when the repair would touch soloPaths, change more than about 5 files or 200 lines, '
+  + 'need a schema or data migration, a secret, or a CI or infrastructure change, or when the failure is outside this batch\'s files and also fails on the live branch.';

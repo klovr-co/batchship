@@ -129,3 +129,12 @@ test('end to end without GitHub: today, fix start/done (reused worker), eject, s
   grant(repo, 'other-session', ['ship']);
   assert.match(fails('ship.mjs', '--merge'), /needs the user to ask/, 'a grant from another session does not count');
 });
+
+import { pruneCandidates } from '../triage.mjs';
+test('prune: only clean, merged, non-worker worktrees whose commits are kept', () => {
+  const wts = [{ branch: 'staging', path: '/r' }, { branch: 'ship/a', path: '/w/a' }, { branch: 'fix/b', path: '/wt/worker-1' },
+    { branch: 'ship/c', path: '/w/c' }, { branch: 'ship/d', path: '/w/d' }, { branch: 'ship/e', path: '/w/e' }];
+  const got = pruneCandidates(wts, { main: '/r', merged: new Set(['staging', 'ship/a', 'fix/b', 'ship/c', 'ship/e']),
+    dirty: (p) => p === '/w/c', kept: (w) => w.branch !== 'ship/e' });
+  assert.deepEqual(got.map((w) => w.branch), ['ship/a']);
+});

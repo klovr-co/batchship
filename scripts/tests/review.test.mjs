@@ -115,3 +115,14 @@ test("the live branch's review policy wins over the batch's own .ship.json", () 
   try { sh(`node ${join(import.meta.dirname, '..', 'review.mjs')}`); } catch (e) { code = e.status; }
   assert.equal(code, 1, 'still reviewed by the live policy');
 });
+
+import { pickReviewers } from '../review.mjs';
+test('risky changes get riskyReviewers: soloPaths, riskyPaths or size', () => {
+  const review = { reviewers: ['same'], riskyReviewers: ['same', 'codex'], riskyPaths: ['convex/schema.ts'], riskyLines: 400 };
+  assert.deepEqual(pickReviewers(review, { files: ['app/a.tsx'], lines: 20, soloPaths: ['.github/'] }), { reviewers: ['same'], risky: false, why: '' });
+  assert.equal(pickReviewers(review, { files: ['.github/ci.yml'], lines: 2, soloPaths: ['.github/'] }).reviewers.length, 2);
+  assert.equal(pickReviewers(review, { files: ['convex/schema.ts'], lines: 2 }).why, 'touches convex/schema.ts');
+  assert.equal(pickReviewers(review, { files: ['a.ts'], lines: 401 }).why, '401 changed lines');
+  assert.deepEqual(pickReviewers({ ...review, riskyReviewers: null }, { files: ['a.ts'], lines: 999 }).reviewers, ['same']);
+  assert.equal(pickReviewers({ ...review, riskyLines: 0 }, { files: ['a.ts'], lines: 9999 }).risky, false);
+});

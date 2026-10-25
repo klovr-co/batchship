@@ -22,6 +22,8 @@ Follow BATCH.md; these are its steps.
 - `done`: in the fix worktree, `node .batchship/fix.mjs done --title "..."`. It checks, reviews, opens the fix PR into the batch and merges it. Fix what it reports and run it again.
 - `ship [<batch>]`: `node .batchship/ship.mjs` (in the background) opens the batch PR to the live branch and, when the user asked to ship in the session and `review.after` is `"merge"` (default), marks it ready, waits for CI and merges it; with `"human"` it stops at the draft. When the user asked to ship once their fixes are done: finish all of them first, then `ship.mjs --merge` (ready, CI, merge).
 - `hotfix <name>`: only when the user asked for a hotfix: `node .batchship/triage.mjs hotfix <name>`, then a normal PR to the live branch, merged after its CI passes.
-- `status`: `node .batchship/triage.mjs list`.
+- `status`: `node .batchship/triage.mjs list`. `prune`: `node .batchship/triage.mjs prune` (then `--apply`) removes worktrees of merged branches.
+- Red CI or a whole-batch review blocker after `ship`: repair it yourself (BATCH.md, "Red CI on a batch"), then ship again. Hand it to the user only when it is big (soloPaths, more than ~5 files or 200 lines, a migration, secret or CI change) or the tries run out.
+- In a repo with `.mergify.yml` the queue merges PRs to the live branch: ship.mjs queues batches; a hotfix is marked ready and queued with `gh pr comment <PR> --body '@mergifyio queue'`.
 
 Never edit, commit or push on the live branch or a `manualBranches` branch, never push to `ship/*` directly, never mark ready or merge unless the user asked for a hotfix or to ship.

@@ -10,7 +10,7 @@ Never edit or commit on the live branch. For each task:
 2. Give each fix to a worker (T3 thread on its worktree, a subagent, or yourself) with the worker prompt below. Several workers can work on the same batch at once.
 3. Tell the user in one line where each fix went.
 
-`node .batchship/triage.mjs list` shows the batches, their fixes and what shipping them costs.
+`node .batchship/triage.mjs list` shows the batches, their fixes and what shipping them costs. `node .batchship/triage.mjs prune` lists worktrees left over from merged branches; `--apply` removes them.
 
 ## Worker prompt
 > `node .batchship/fix.mjs start <fix-name>` (add `--batch <batch>` for a separate batch). Work only in the worktree it prints. Commit there; run `node .batchship/batch-check.mjs --quick` before each commit. When the fix is ready: `node .batchship/fix.mjs done --title "<what it fixes>"` (add `--focus "..."` for the risky part). It runs the full check and the agent review, opens the fix PR into the batch, posts the review on it, and merges it into the batch when everything passes. If it stops, fix what it says, commit, and run `fix.mjs done` again. After `review.rounds` failed reviews, stop and report the open findings. Never push to `ship/*` or the live branch directly, never mark PRs ready, never merge them yourself, never deploy.
@@ -24,11 +24,17 @@ Already working on your own branch (e.g. a T3 thread's worktree)? `node .batchsh
 
 Batches ship once a day by default. When the user asks to ship once their work is done ("... then ship when done"), finish every fix they gave in the session, check none is still open, then run `node .batchship/ship.mjs --merge` in the background: it opens the batch PR, marks it ready, waits for CI and merges it (`--merge` also overrides `review.after: "human"`). Fixes other sessions still have open move to the next batch.
 
+With the Mergify queue (the repo has `.mergify.yml`): ship.mjs marks the batch PR ready and queues it (`@mergifyio queue`) instead of merging it. Mergify updates the batch with the live branch when needed, waits for CI and merges. Mergify taking it out of the queue counts as red CI below. Never `gh pr merge` a PR to the live branch: the queue does.
+
+If the whole-batch review finds a blocker or major issue, ship.mjs stops with the findings. Repair it once like red CI (step 3 below, then ship again); after `review.batchRepairRounds` repairs the draft waits for the human.
+
 ## Red CI on a batch
 1. A runner lost, a timeout, or a test that also fails on the live branch: re-run only the failed jobs (`gh run rerun <run> --failed`).
 2. A real failure: run the failing test locally on the batch and find the fix with `git bisect run <test>` over the batch's commits (one commit per fix).
 3. Fix forward: `node .batchship/fix.mjs start <name> --repair` (it lands on the shipping batch, not today's), then `fix.mjs done` as usual: checked and reviewed. Or take the fix out: `node .batchship/fix.mjs eject <PR number>`.
 4. Run `ship.mjs` again (in the background): it waits for the new CI run and merges when green. After `review.ciRounds` red runs (default 3) it stops: hand it to the human with what failed.
 
+Repair on your own: that is the default. Hand it to the human at once instead when the repair would touch `soloPaths`, change more than about 5 files or 200 lines, need a schema or data migration, a secret, or a CI or infrastructure change, or when the failure is outside the batch's files and also fails on the live branch. Say what failed, what you found, and what you would do.
+
 ## Hotfix (urgent production bug)
-Only when the user asks for one (a line starting "hotfix: ..."): `node .batchship/triage.mjs hotfix <name>`, fix it in that worktree, push, open a normal PR to the live branch, wait for its CI, merge. This skips the batch. The guard allows marking ready and merging only in a session where the user asked for a hotfix.
+Only when the user asks for one (a line starting "hotfix: ..."): `node .batchship/triage.mjs hotfix <name>`, fix it in that worktree, push, open a normal PR to the live branch, wait for its CI, merge (with Mergify: mark it ready and queue it with `@mergifyio queue`; the hotfix queue goes first). This skips the batch. The guard allows marking ready and merging only in a session where the user asked for a hotfix.

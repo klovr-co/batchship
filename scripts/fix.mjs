@@ -123,8 +123,8 @@ export function done(cwd, { title, body, focus, config }) {
     try { sh(`git merge -q --no-edit origin/${m.batch}`, wt); }
     catch { throw new Error(`merging the latest ${m.batch} conflicts: resolve the conflicts here, commit, then run fix.mjs done again`); }
   }
-  console.log(`== full check`);
-  if (node('batch-check.mjs', [], wt) !== 0) throw Object.assign(new Error('batch-check failed: fix it, commit, run fix.mjs done again'), { code: 1 });
+  console.log(`== check (shipOnly checks wait for the batch)`);
+  if (node('batch-check.mjs', ['--fix'], wt) !== 0) throw Object.assign(new Error('batch-check failed: fix it, commit, run fix.mjs done again'), { code: 1 });
   console.log(`\n== agent review`);
   const rv = node('review.mjs', ['--base', `origin/${m.batch}`, ...(focus ? ['--focus', focus] : [])], wt);
   if (rv !== 0) throw Object.assign(new Error(rv === 1 ? 'review asked for changes: fix them, commit, run fix.mjs done again' : 'review could not run'), { code: rv });
