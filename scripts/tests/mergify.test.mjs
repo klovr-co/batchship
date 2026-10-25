@@ -56,3 +56,10 @@ test('humanPaths: a batch touching one waits for the human', () => {
   assert.equal(humanGate(['app/a.tsx'], ['convex/schema.ts']), null);
   assert.equal(humanGate(['app/a.tsx']), null);
 });
+
+test('gh pr aimed at another repo (-R) is not this repo\'s business', () => {
+  const base = { branch: 'staging', head: 'a', marker: 'a', config: DEFAULTS, mergify: true, repo: 'klovr-co/aldrent' };
+  assert.deepEqual(evaluate({ ...base, command: 'gh pr merge 3 -R klovr-co/batchship --merge' }), []);
+  assert.match(evaluate({ ...base, command: 'gh pr merge 3 -R klovr-co/aldrent --merge' }).join(' '), /Mergify/);
+  assert.match(evaluate({ ...base, command: 'gh pr merge 3 --merge' }).join(' '), /Mergify/);
+});

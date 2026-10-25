@@ -81,6 +81,8 @@ export const UNLOCK_MS = 2 * 3600_000;
 // Not when the line is a question, or the phrase is quoted or follows "if" / "say".
 const SHIP = /\b(?:then\s+ship\b(?!\s+(?:flow|design|step|script))|ship(?:\s+(?:it|them|everything|all|these|this|the\s+batch|today'?s\s+batch))?\s+(?:(?:when|once|after)\s+(?:(?:it|they|everything|all|the\s+list|this|these|those|we)(?:'?s|'?re|\s+is|\s+are)?\s+)?(?:all\s+)?(?:done|finished|complete|completed)\b|after\s+(?:this|these|that|them|it|the\s+list|everything)\b|at\s+the\s+end\b|now\b))/i;
 export function intents(prompt = '') {
+  // Quoted material is not a request: drop fenced code blocks and > quote lines before reading the user's words.
+  prompt = String(prompt).replace(/```[\s\S]*?(```|$)/g, '').split('\n').filter((l) => !/^\s*>/.test(l)).join('\n');
   const ls = String(prompt).split('\n').map((l) => l.trim().replace(/^(please|pls|ok|okay|go|now|and)[,:]?\s+/i, ''));
   const asked = (l) => !/\?\s*$/.test(l);
   const kinds = [];
@@ -139,3 +141,8 @@ export function queueOutcome(view, since) {
 // When a repair is the human's, not the agent's: what ship.mjs tells the agent before it starts one.
 export const ESCALATE = 'Hand it to the human instead of repairing when the repair would touch soloPaths, change more than about 5 files or 200 lines, '
   + 'need a schema or data migration, a secret, or a CI or infrastructure change, or when the failure is outside this batch\'s files and also fails on the live branch.';
+
+// The agent session running this script (a T3 or Claude Code thread, a Codex thread); null at a human's terminal.
+export const sessionId = (env = process.env) => env.CLAUDE_CODE_SESSION_ID || env.CODEX_THREAD_ID || null;
+// batchPer "session": which batch each session works on, kept next to the repo's git data.
+export const sessionFile = (cwd) => join(resolve(cwd, sh('git rev-parse --git-common-dir', cwd)), 'batchship-sessions.json');

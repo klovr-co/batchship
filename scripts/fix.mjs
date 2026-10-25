@@ -15,8 +15,8 @@ import { existsSync, readdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, basename } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { loadConfig } from './config.mjs';
-import { sh, trySh, lines, q, slugify, wtRoot, gitPath, readJson, writeJson, onGitHub, install, batchCheckout, unfilteredPrWorkflows } from './lib.mjs';
-import { listBatches, todayBatch, whyNotJoinable } from './triage.mjs';
+import { sh, trySh, lines, q, slugify, wtRoot, gitPath, readJson, writeJson, onGitHub, install, batchCheckout, unfilteredPrWorkflows, sessionId } from './lib.mjs';
+import { listBatches, nextBatch, whyNotJoinable } from './triage.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const MARKER = 'batchship-fix.json';
@@ -25,7 +25,7 @@ const setMarker = (wt, m) => writeJson(gitPath(wt, MARKER), m);
 const node = (script, args, cwd) => spawnSync(process.execPath, [join(here, script), ...args], { cwd, stdio: 'inherit' }).status;
 export const isIdle = (wt) => !trySh('git status --porcelain', wt) && marker(wt)?.state !== 'working';
 
-function pickBatch(cwd, wanted, { config, today, repair }) {
+function pickBatch(cwd, wanted, { config, today, repair, session = sessionId(), name }) {
   const batches = listBatches(cwd, { live: config.protectedBranch, soloPaths: config.soloPaths });
   if (repair) {
     // A repair goes onto a batch that is shipping: its PR is open, so new fixes go elsewhere but this one belongs there.
@@ -34,7 +34,7 @@ function pickBatch(cwd, wanted, { config, today, repair }) {
     if (!b) throw new Error(wanted ? `${wanted} has no open batch PR to repair` : `say which batch to repair (--batch): ${shipping.map((x) => x.name).join(', ') || 'none is shipping'}`);
     return b.name;
   }
-  if (!wanted) return todayBatch(cwd, { batches, today, config }).batch;
+  if (!wanted) return nextBatch(cwd, { batches, today, config, session, name }).batch;
   const b = batches.find((x) => x.name === wanted || x.name === `ship/${wanted}`);
   if (!b) throw new Error(`no batch ${wanted}; see triage.mjs list`);
   const why = whyNotJoinable(b, today, config);
@@ -52,7 +52,8 @@ function freeBranch(cwd, slug) {
 export function start(cwd, name, { batch: wanted, repair = false, config, today = new Date(), install: doInstall = true }) {
   const slug = slugify(name);
   if (!slug) throw new Error('name the fix, e.g. fix.mjs start offline-qr-pass');
-  const batch = pickBatch(cwd, wanted, { config, today, repair });
+  const session = sessionId();
+  const batch = pickBatch(cwd, wanted, { config, today, repair, session, name: slug });
   const root = wtRoot(cwd);
   const workers = existsSync(root) ? readdirSync(root).filter((d) => /^worker-\d+$/.test(d)).map((d) => join(root, d)) : [];
   const cur = trySh('git rev-parse --show-toplevel', cwd);
@@ -68,7 +69,7 @@ export function start(cwd, name, { batch: wanted, repair = false, config, today 
   sh(`git fetch -q origin ${batch}`, wt);
   const branch = freeBranch(wt, slug);
   sh(`git switch -q --no-track -c ${branch} origin/${batch}`, wt);
-  setMarker(wt, { name, slug, branch, batch, repair, state: 'working', started: new Date().toISOString() });
+  setMarker(wt, { name, slug, branch, batch, repair, session, state: 'working', started: new Date().toISOString() });
   // A reused worktree only reinstalls when the dependency files changed.
   const depsChanged = fresh || !!trySh(`git diff --name-only ${before} HEAD -- '*package.json' '*lock*' 'pyproject.toml'`, wt);
   return { batch, branch, repair, worktree: wt, reused: !fresh, install: doInstall && depsChanged ? install(wt, config) : null };
@@ -79,8 +80,9 @@ export function adopt(cwd, name, { config, today = new Date() }) {
   const branch = sh('git branch --show-current', wt);
   const special = [config.protectedBranch, ...(config.manualBranches || [])].includes(branch) || [...config.batchPrefixes, ...config.hotfixPrefixes].some((p) => branch.startsWith(p));
   if (!branch || special) throw new Error(`you are on ${branch || 'a detached HEAD'}; start a fix with fix.mjs start <name> instead`);
-  const batch = pickBatch(cwd, null, { config, today });
-  setMarker(wt, { name: name || branch, slug: slugify(name || branch), branch, batch, state: 'working', started: new Date().toISOString() });
+  const session = sessionId();
+  const batch = pickBatch(cwd, null, { config, today, session, name: name || branch });
+  setMarker(wt, { session, name: name || branch, slug: slugify(name || branch), branch, batch, state: 'working', started: new Date().toISOString() });
   return { batch, branch, worktree: wt };
 }
 
@@ -113,7 +115,8 @@ export function done(cwd, { title, body, focus, config }) {
   const b = batches.find((x) => x.name === m.batch);
   const staysPut = m.repair && b && b.state !== 'done';
   if (!staysPut && (!b || whyNotJoinable(b, new Date(), config))) {
-    const next = todayBatch(wt, { batches, today: new Date(), config }).batch;
+    // The fix follows the session that started it (batchPer "session"), not whichever worker finishes it.
+    const next = nextBatch(wt, { batches, today: new Date(), config, session: m.session, name: m.slug }).batch;
     console.log(`${m.batch} is not taking fixes (${b ? whyNotJoinable(b, new Date(), config) : 'gone'}): moving this fix to ${next}`);
     m.batch = next; setMarker(wt, m);
   }
