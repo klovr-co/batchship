@@ -22,6 +22,7 @@ export const DEFAULTS = {
     rounds: 2,           // review runs per batch before it goes back to the human
     ciRounds: 3,         // red CI runs on a batch PR before ship.mjs stops trying and hands it to the human
     batchRepairRounds: 1, // times a blocker from the whole-batch review goes to a repair fix before the batch PR waits for the human
+    humanPaths: [],      // path prefixes: a batch that touches one stops at the draft PR for the human, whatever review.after says
     after: 'merge',      // 'merge': when the batch ships, ship.mjs marks the batch PR ready, waits for CI and merges it (each fix already passed its review). 'human': stop at the draft PR
     timeoutMinutes: 20,
     queueTimeoutMinutes: 120, // with Mergify: how long ship.mjs waits for the queue to merge or drop the batch PR

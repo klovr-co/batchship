@@ -52,6 +52,9 @@ export function autoMerge({ merge, after, agent, asked }) {
   return merge || (after === 'merge' && (!agent || asked));
 }
 
+// The first changed file under review.humanPaths: such a batch always waits for the human to mark it ready.
+export const humanGate = (files = [], humanPaths = []) => files.find((f) => humanPaths.some((p) => f.startsWith(p))) || null;
+
 export function ship(cwd, wanted, { merge = false }) {
   const config = withLivePolicy(cwd, loadConfig(cwd));
   const live = config.protectedBranch;
@@ -98,6 +101,8 @@ export function ship(cwd, wanted, { merge = false }) {
     for (const f of open) try { sh(`gh pr edit ${f.number} --base ${next}`, cwd); moved.push(`#${f.number} -> ${next}`); } catch {}
   }
   if (!autoMerge({ merge, after: config.review.after, agent: sameHarness(), asked })) return { batch: b.name, pr, title, moved, merged: false };
+  const gate = humanGate(lines(sh(`git diff --name-only origin/${live}...HEAD`, bw)), config.review.humanPaths);
+  if (gate) return { batch: b.name, pr, title, moved, merged: false, human: gate };
   // Each fix passed its own review; the whole-batch review only stops the merge when the fixes break each other.
   const held = (readJson(out) || []).filter((r) => r.ok).flatMap((r) => r.findings || []).filter((f) => f.severity === 'blocker' || f.severity === 'major');
   // Red CI gets review.ciRounds tries (re-run, repair or eject, then ship again), counted per batch; then it is the human's.
@@ -162,6 +167,7 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href) {
     if (r.local) console.log(`\nSHIPPED ${r.batch} locally (no GitHub remote): merge it into the live branch with a merge commit.`);
     else console.log([`\nBATCH PR #${r.pr}: ${r.title}`, r.moved.length && `moved open fix PRs: ${r.moved.join(', ')}`,
       r.merged ? (r.via === 'mergify' ? 'Merged by the Mergify queue after a green CI run.' : 'CI green: merged with a merge commit.')
+        : r.human ? `Left as a draft for the human: it touches ${r.human} (review.humanPaths). They mark it ready; with Mergify they also queue it (tick the box in Mergify's comment).`
         : r.held ? `Left as a draft: the whole-batch review found ${r.held} blocker/major issue(s), listed on the PR. Fix forward with a fix PR, or the human marks it ready and merges.`
         : 'Draft: the human marks it ready (one CI run) and merges it with a merge commit.'].filter(Boolean).join('\n'));
   } catch (e) {
