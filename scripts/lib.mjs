@@ -82,6 +82,8 @@ export const UNLOCK_MS = 2 * 3600_000;
 const SHIP = /\b(?:then\s+ship\b(?!\s+(?:flow|design|step|script))|ship(?:\s+(?:it|them|everything|all|these|this|the\s+batch|today'?s\s+batch))?\s+(?:(?:when|once|after)\s+(?:(?:it|they|everything|all|the\s+list|this|these|those|we)(?:'?s|'?re|\s+is|\s+are)?\s+)?(?:all\s+)?(?:done|finished|complete|completed)\b|after\s+(?:this|these|that|them|it|the\s+list|everything)\b|at\s+the\s+end\b|now\b))/i;
 export function intents(prompt = '') {
   // Quoted material is not a request: drop fenced code blocks and > quote lines before reading the user's words.
+  // An unclosed fence quotes everything after it: missing a real request only means the user says it again, while reading a
+  // pasted example as one would merge work nobody asked to ship.
   prompt = String(prompt).replace(/```[\s\S]*?(```|$)/g, '').split('\n').filter((l) => !/^\s*>/.test(l)).join('\n');
   const ls = String(prompt).split('\n').map((l) => l.trim().replace(/^(please|pls|ok|okay|go|now|and)[,:]?\s+/i, ''));
   const asked = (l) => !/\?\s*$/.test(l);

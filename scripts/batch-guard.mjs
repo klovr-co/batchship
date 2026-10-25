@@ -63,7 +63,8 @@ export function evaluate({ command = '', filePath, cwd = '.', branch, branchOf =
         out.push(`Batch branches change only through ${cmd('fix.mjs')} done and ${cmd('ship.mjs')}; push your fix branch instead.`);
     }
     // gh pr ... -R owner/name aimed at another repository: this repo's rules do not apply to it.
-    const other = /^gh\s+pr\b/.test(seg) && (seg.match(/(?:\s-R|\s--repo)[=\s]+(\S+)/) || [])[1];
+    const bare = seg.replace(/"(?:[^"\\]|\\.)*"|'[^']*'/g, '""'); // quoted arguments (--body "...") cannot name the repo
+    const other = /^gh\s+pr\b/.test(seg) && (bare.match(/(?:\s-R|\s--repo)[=\s]+([^\s"']+)/) || [])[1];
     if (other && repo && other.replace(/^https?:\/\/github\.com\//, '').replace(/\.git$/, '').toLowerCase() !== repo.toLowerCase()) continue;
     if (/review\.mjs\b.*--force\b/.test(seg)) out.push('Only the human re-opens review (--force). Stop and hand the fix over with the open findings.');
     // Each unlock opens only its own path: "hotfix" for hotfix/* branches, "ship" for batches.
