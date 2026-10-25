@@ -49,3 +49,10 @@ test('batch PR text says the queue merges it', () => {
   assert.match(t.body, /Mergify merge queue merges this PR/);
   assert.doesNotMatch(prText({ batch: 'ship/day-20261025', live: 'staging', subjects: ['a (#1)'] }).body, /Mergify/);
 });
+
+import { humanGate } from '../ship.mjs';
+test('humanPaths: a batch touching one waits for the human', () => {
+  assert.equal(humanGate(['app/a.tsx', 'convex/schema.ts'], ['convex/schema.ts']), 'convex/schema.ts');
+  assert.equal(humanGate(['app/a.tsx'], ['convex/schema.ts']), null);
+  assert.equal(humanGate(['app/a.tsx']), null);
+});

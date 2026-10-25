@@ -118,6 +118,7 @@ A prompt hook records the request for that session for two hours, and each one o
 | `review.reviewers` | `["same"]` | Agents that review each fix before it joins the batch, in parallel and read-only: `same` (the agent's own harness), `claude`, `codex`, `agy`, each optionally `:model`, or `{ "name", "cmd" }`. `[]` turns review off |
 | `review.riskyReviewers` | `null` | Reviewers for a risky fix (touches `soloPaths` or `review.riskyPaths`, or more than `review.riskyLines` changed lines); `null` = `reviewers`. Lets small fixes use one reviewer and risky ones two |
 | `review.riskyPaths` | `[]` | Extra path prefixes that make a fix risky |
+| `review.humanPaths` | `[]` | Path prefixes: a batch that touches one always stops at the draft PR for you to mark ready, whatever `review.after` says |
 | `review.riskyLines` | `400` | Changed lines above which a fix is risky; `0` = size never does |
 | `review.rounds` | `2` | Failed reviews in a row before the fix goes back to you |
 | `review.after` | `merge` | `merge`: when you asked to ship (or run it yourself), ship.mjs marks the batch PR ready, waits for CI and merges it, unless the whole-batch review finds a blocker or major issue. `human`: the batch PR waits for you. Read from the live branch, so a batch cannot change it |
