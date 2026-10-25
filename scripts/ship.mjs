@@ -6,13 +6,16 @@
 // Then: review.after "merge" (default, from the live branch's .ship.json) when the user asked to ship in this session (or a human
 // runs it), or --merge, marks it ready, waits for CI and merges with a merge commit. It stops at the draft when the whole-batch review finds a
 // blocker or major issue. review.after "human" stops for the human to mark it ready and merge.
+// With the Mergify queue (mergeVia, default: when the repo has .mergify.yml) ship.mjs queues the PR instead of merging it:
+// Mergify brings it up to date with the live branch, waits for CI and merges it. Out of the queue counts as red CI.
+// A blocker from the whole-batch review goes to a repair fix review.batchRepairRounds times before the PR waits for the human.
 // Waiting for CI takes as long as the CI run: start it in the background.
 import { spawnSync } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { loadConfig, withLivePolicy } from './config.mjs';
-import { sh, trySh, lines, q, gitPath, readJson, writeJson, onGitHub, batchCheckout, unlocked } from './lib.mjs';
+import { sh, trySh, lines, q, gitPath, readJson, writeJson, onGitHub, batchCheckout, unlocked, usesMergify, queueOutcome, ESCALATE } from './lib.mjs';
 import { listBatches, todayBatch, DAY_SLUG } from './triage.mjs';
 import { sameHarness } from './review.mjs';
 
@@ -20,7 +23,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const node = (script, args, cwd) => spawnSync(process.execPath, [join(here, script), ...args], { cwd, stdio: 'inherit' }).status;
 
 // The batch PR text: what is in it, why it exists, what the advisory review said, how to merge it.
-export function prText({ batch, live, subjects, reason, review = [] }) {
+export function prText({ batch, live, subjects, reason, review = [], mergify = false }) {
   const fixes = subjects.filter((s) => !s.startsWith('batch: '));
   const short = (s) => s.replace(/\s*\(#\d+\)$/, '');
   const m = batch.match(/^ship\/(.+?)-(\d{4})(\d\d)(\d\d)/);
@@ -36,6 +39,7 @@ export function prText({ batch, live, subjects, reason, review = [] }) {
     ...(reason ? ['', '## Why a separate batch', reason] : []),
     ...(findings.length ? ['', '## Advisory review of the whole batch', 'How the fixes interact and the merge resolutions. It does not block.', ...findings] : []),
     '', '## Merging',
+    ...(mergify ? ['The Mergify merge queue merges this PR: it brings it up to date with the live branch, waits for CI, then merges.'] : []),
     `Merge with a **merge commit**, not squash: each fix stays its own commit on \`${live}\`, so one fix can be reverted alone and \`git blame\` leads to its PR.`,
     'If CI is red: a runner or flaky failure, re-run only the failed jobs. A real failure, find the fix with `git bisect run <failing test>` over this batch, then fix forward (`fix.mjs start <name> --repair`, `fix.mjs done`) or `fix.mjs eject <PR>`, and run `ship.mjs` again.',
   ].join('\n');
@@ -77,7 +81,8 @@ export function ship(cwd, wanted, { merge = false }) {
   sh(`git push -q origin ${b.name}`, bw);
   const subjects = lines(sh(`git log --first-parent --no-merges --reverse --format=%s origin/${live}..HEAD`, bw));
   const reason = (subjects.find((s) => s.startsWith('batch: ')) || '').slice(7);
-  const { title, body } = prText({ batch: b.name, live, subjects, reason, review: readJson(out) || [] });
+  const mergify = usesMergify(bw, config);
+  const { title, body } = prText({ batch: b.name, live, subjects, reason, review: readJson(out) || [], mergify });
   if (!onGitHub(bw)) return { batch: b.name, local: true, title };
   const bodyFile = gitPath(bw, 'batchship-batch-pr.md');
   writeFileSync(bodyFile, body);
@@ -95,26 +100,56 @@ export function ship(cwd, wanted, { merge = false }) {
   if (!autoMerge({ merge, after: config.review.after, agent: sameHarness(), asked })) return { batch: b.name, pr, title, moved, merged: false };
   // Each fix passed its own review; the whole-batch review only stops the merge when the fixes break each other.
   const held = (readJson(out) || []).filter((r) => r.ok).flatMap((r) => r.findings || []).filter((f) => f.severity === 'blocker' || f.severity === 'major');
-  if (held.length) return { batch: b.name, pr, title, moved, merged: false, held: held.length };
   // Red CI gets review.ciRounds tries (re-run, repair or eject, then ship again), counted per batch; then it is the human's.
   const ciFile = gitPath(bw, 'batchship-ci.json');
   const ci = readJson(ciFile) || {};
   const red = ci[b.name]?.red || 0;
+  if (held.length) {
+    // A blocker gets review.batchRepairRounds repair fixes (each reviewed like any fix); then the draft waits for the human.
+    const repairs = ci[b.name]?.held || 0;
+    if (repairs >= config.review.batchRepairRounds) return { batch: b.name, pr, title, moved, merged: false, held: held.length };
+    writeJson(ciFile, { ...ci, [b.name]: { ...ci[b.name], held: repairs + 1, at: new Date().toISOString() } });
+    throw Object.assign(new Error([`The whole-batch review found ${held.length} blocker/major issue(s) on #${pr} (listed on the PR); it stays a draft.`,
+      `Repair it (${repairs + 1} of ${config.review.batchRepairRounds}): fix.mjs start <name> --repair --batch ${b.name}, fix the findings, fix.mjs done, then run ship.mjs again.`,
+      ESCALATE].join('\n')), { code: 1 });
+  }
   if (red >= config.review.ciRounds && process.env.BATCHSHIP_ALLOW !== '1')
     throw Object.assign(new Error(`CI was red ${red} times on #${pr} (review.ciRounds is ${config.review.ciRounds}): stop and hand it to the human with what failed.`), { code: 1 });
   trySh(`gh pr ready ${pr}`, bw);
+  const red_ = (failed, extra) => {
+    writeJson(ciFile, { ...ci, [b.name]: { ...ci[b.name], red: red + 1, at: new Date().toISOString() } });
+    const left = config.review.ciRounds - red - 1;
+    return Object.assign(new Error([`CI is red on #${pr} (try ${red + 1} of ${config.review.ciRounds}). Nothing was merged.`,
+      extra, failed.length && `Failed: ${failed.join(', ')}`,
+      left > 0 ? `Next: a runner or flaky failure, re-run the failed jobs (gh run rerun <run> --failed); a real one, find the fix with git bisect run <test>, then repair it (fix.mjs start <name> --repair, fix.mjs done) or eject it (fix.mjs eject <PR>). Then run ship.mjs again. ${ESCALATE}`
+        : 'No tries left: hand it to the human with what failed.'].filter(Boolean).join('\n')), { code: 1 });
+  };
+  if (mergify) {
+    // Queue it; Mergify updates the batch with the live branch when needed (a merge commit, never a rewrite), waits for CI, merges.
+    const since = Date.now() - 5000;
+    sh(`gh pr comment ${pr} --body '@mergifyio queue'`, bw);
+    console.log(`\n== queued #${pr} with Mergify; waiting for it to merge`);
+    const deadline = Date.now() + (config.review.queueTimeoutMinutes || 120) * 60000;
+    let last = '';
+    for (;;) {
+      spawnSync('sleep', ['30']);
+      let view;
+      try { view = JSON.parse(sh(`gh pr view ${pr} --json state,comments`, bw)); } catch { continue; }
+      const r = queueOutcome(view, since);
+      if (r.done === 'merged') return { batch: b.name, pr, title, moved, merged: true, via: 'mergify' };
+      if (r.done === 'closed') throw Object.assign(new Error(`#${pr} was closed while queued.`), { code: 1 });
+      if (r.done === 'dequeued') {
+        const failed = r.checks.length ? r.checks : lines(trySh(`gh pr checks ${pr} --json name,bucket -q '.[] | select(.bucket == "fail") | .name'`, bw) || '');
+        throw red_(failed, `Mergify took it out of the queue: ${r.reason}.`);
+      }
+      if (r.state !== last) { console.log(`   queue: ${r.state}`); last = r.state; }
+      if (Date.now() > deadline) throw Object.assign(new Error(`#${pr} is still in the Mergify queue (${r.state}) after ${config.review.queueTimeoutMinutes || 120} min: check the Mergify dashboard, then hand it to the human.`), { code: 1 });
+    }
+  }
   console.log(`\n== waiting for CI on #${pr}`);
   spawnSync('sleep', ['15']);
   const green = spawnSync('gh', ['pr', 'checks', String(pr), '--watch', '--interval', '30'], { cwd: bw, stdio: 'inherit' }).status === 0;
-  if (!green) {
-    writeJson(ciFile, { ...ci, [b.name]: { red: red + 1, at: new Date().toISOString() } });
-    const failed = lines(trySh(`gh pr checks ${pr} --json name,bucket -q '.[] | select(.bucket == "fail") | .name'`, bw) || '');
-    const left = config.review.ciRounds - red - 1;
-    throw Object.assign(new Error([`CI is red on #${pr} (try ${red + 1} of ${config.review.ciRounds}). Nothing was merged.`,
-      failed.length && `Failed: ${failed.join(', ')}`,
-      left > 0 ? 'Next: a runner or flaky failure, re-run the failed jobs (gh run rerun <run> --failed); a real one, find the fix with git bisect run <test>, then repair it (fix.mjs start <name> --repair, fix.mjs done) or eject it (fix.mjs eject <PR>). Then run ship.mjs again.'
-        : 'No tries left: hand it to the human with what failed.'].filter(Boolean).join('\n')), { code: 1 });
-  }
+  if (!green) throw red_(lines(trySh(`gh pr checks ${pr} --json name,bucket -q '.[] | select(.bucket == "fail") | .name'`, bw) || ''));
   sh(`gh pr merge ${pr} --merge`, bw);
   return { batch: b.name, pr, title, moved, merged: true };
 }
@@ -126,7 +161,7 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href) {
     const r = ship(sh('git rev-parse --show-toplevel'), wanted, { merge: args.includes('--merge') });
     if (r.local) console.log(`\nSHIPPED ${r.batch} locally (no GitHub remote): merge it into the live branch with a merge commit.`);
     else console.log([`\nBATCH PR #${r.pr}: ${r.title}`, r.moved.length && `moved open fix PRs: ${r.moved.join(', ')}`,
-      r.merged ? 'CI green: merged with a merge commit.'
+      r.merged ? (r.via === 'mergify' ? 'Merged by the Mergify queue after a green CI run.' : 'CI green: merged with a merge commit.')
         : r.held ? `Left as a draft: the whole-batch review found ${r.held} blocker/major issue(s), listed on the PR. Fix forward with a fix PR, or the human marks it ready and merges.`
         : 'Draft: the human marks it ready (one CI run) and merges it with a merge commit.'].filter(Boolean).join('\n'));
   } catch (e) {

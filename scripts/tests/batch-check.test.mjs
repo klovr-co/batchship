@@ -11,3 +11,9 @@ test('selects by changed path, always-on checks included', () =>
   assert.deepEqual(selectChecks(['web/a.ts'], checks).map((c) => c.name), ['lint', 'all']));
 test('quick keeps only quick checks', () =>
   assert.deepEqual(selectChecks(['web/a.ts', 'backend/b.ts'], checks, { quick: true }).map((c) => c.name), ['lint']));
+
+test('per fix (--fix) skips shipOnly checks; a full run keeps them', () => {
+  const cs = [{ name: 'lint', cmd: 'l' }, { name: 'typecheck', cmd: 't', shipOnly: true }];
+  assert.deepEqual(selectChecks(['a.ts'], cs, { fix: true }).map((c) => c.name), ['lint']);
+  assert.deepEqual(selectChecks(['a.ts'], cs).map((c) => c.name), ['lint', 'typecheck']);
+});
