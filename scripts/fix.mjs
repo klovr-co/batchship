@@ -16,7 +16,7 @@ import { dirname, join, basename } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { loadConfig } from './config.mjs';
 import { sh, trySh, lines, q, slugify, wtRoot, gitPath, readJson, writeJson, onGitHub, install, batchCheckout, unfilteredPrWorkflows, sessionId } from './lib.mjs';
-import { listBatches, nextBatch, whyNotJoinable } from './triage.mjs';
+import { listBatches, nextBatch, whyNotJoinable, rememberSession } from './triage.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const MARKER = 'batchship-fix.json';
@@ -39,6 +39,8 @@ function pickBatch(cwd, wanted, { config, today, repair, session = sessionId(), 
   if (!b) throw new Error(`no batch ${wanted}; see triage.mjs list`);
   const why = whyNotJoinable(b, today, config);
   if (why) throw new Error(`cannot add to ${b.name}: ${why}`);
+  // An explicit batch becomes this session's batch, so ship.mjs ships the batch the fixes went to.
+  if (config.batchPer === 'session' && session) rememberSession(cwd, session, b.name);
   return b.name;
 }
 

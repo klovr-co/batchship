@@ -68,6 +68,8 @@ export function ship(cwd, wanted, { merge = false }) {
   const withFixes = batches.filter((b) => b.state !== 'done' && b.commits.length);
   // batchPer "session": an agent ships its own session's batch, never another thread's.
   const own = config.batchPer === 'session' && session ? sessionBatchName(cwd, session) : null;
+  if (config.batchPer === 'session' && session && !wanted && !own)
+    throw new Error('this session has no batch of its own (batchPer "session"): start a fix from this thread first, or name the batch to ship');
   const b = wanted ? batches.find((x) => x.name === wanted || x.name === `ship/${wanted}`)
     : own ? batches.find((x) => x.name === own)
     : withFixes.find((x) => x.slug === DAY_SLUG && x.state === 'open') || (withFixes.length === 1 ? withFixes[0] : null);

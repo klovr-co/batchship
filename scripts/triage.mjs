@@ -7,7 +7,7 @@
 //   triage.mjs prune [--apply]             worktrees whose branch's PR has merged and that hold no uncommitted work; --apply removes them
 // Then work on fixes with fix.mjs (start, done) and ship a batch with ship.mjs.
 // Options: --json, --no-install (hotfix: skip installing dependencies)
-import { existsSync } from 'node:fs';
+import { existsSync, renameSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { loadConfig } from './config.mjs';
 import { sh, trySh, lines, q, ymd, slugify, worktrees, wtPath, install, usesMergify, readJson, writeJson, sessionFile } from './lib.mjs';
@@ -99,14 +99,25 @@ export function newBatch(cwd, name, { batches, today, config, reason }) {
 // opens a new one, named after that fix. The reason commit says whose batch it is.
 export function sessionBatch(cwd, { batches, today, config, session, name }) {
   const f = sessionFile(cwd);
-  const map = readJson(f) || {};
+  // Entries whose batch merged or closed are dropped, so the file does not grow forever.
+  const done = new Set(batches.filter((b) => b.state === 'done').map((b) => b.name));
+  const map = Object.fromEntries(Object.entries(readJson(f) || {}).filter(([, v]) => !done.has(v)));
   const mine = map[session] && batches.find((b) => b.name === map[session]);
   if (mine && !whyNotJoinable(mine, today, config)) return { action: 'session', batch: mine.name, created: false };
   const slug = slugify(name) && slugify(name) !== DAY_SLUG ? name : 'thread';
   const r = newBatch(cwd, slug, { batches, today, config, reason: `one batch per thread (session ${String(session).slice(0, 8)})` });
-  writeJson(f, { ...map, [session]: r.batch });
+  saveSession(f, map, session, r.batch);
   return { action: 'session', batch: r.batch, created: true };
 }
+
+// Written to a temp file and renamed, so a reader never sees half a file. The newest entries on disk are merged in first,
+// last, so two sessions starting at once do not drop each other's entry.
+function saveSession(f, map, session, batch) {
+  const tmp = `${f}.${process.pid}.tmp`;
+  writeJson(tmp, { ...map, ...(readJson(f) || {}), [session]: batch });
+  renameSync(tmp, f);
+}
+export const rememberSession = (cwd, session, batch) => saveSession(sessionFile(cwd), {}, session, batch);
 
 // Where new work goes: the session's own batch (batchPer "session", inside an agent session), else today's batch.
 export function nextBatch(cwd, { batches, today, config, session, name }) {
