@@ -9,6 +9,7 @@ export const DEFAULTS = {
   hotfixPrefixes: ['hotfix/'],
   guardMode: 'warn', // 'warn' | 'block'
   checks: [],        // { name, cmd, cwd?, paths?: string[] (prefixes), quick?: boolean, shipOnly?: boolean (skipped per fix, run once when the batch ships) }
+  batchPer: 'day',    // 'day': every thread's fixes join today's batch ship/day-<date>; 'session': each agent session (thread) gets its own batch ship/<first-fix>-<date>, and ship.mjs ships that one
   batchMaxAgeDays: 0, // days a batch takes new fixes: 0 = only the day it is dated (one batch per day)
   batchMaxFiles: 40,  // a batch with this many changed files (lockfiles aside) is full: new work goes to a new batch; 0 = no cap
   soloPaths: [],      // path prefixes (e.g. ['.github/']) whose changes must ship in a batch of their own

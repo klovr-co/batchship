@@ -19,7 +19,7 @@ const triageFirst = (b, cmd) => `You are on ${b}, a live branch: do not edit or 
 // cmd(script): how to run a batchship script here (the repo's .batchship copy, or the plugin's when the repo has none yet).
 // mergify: the repo merges into the live branch through the Mergify queue, so nobody merges those PRs by hand.
 export function evaluate({ command = '', filePath, cwd = '.', branch, branchOf = () => branch, head, headOf = () => head, marker, markerOf = () => marker,
-  config, unlocked = new Set(), cmd = (f) => `node .batchship/${f}`, mergify = false }) {
+  config, unlocked = new Set(), cmd = (f) => `node .batchship/${f}`, mergify = false, repo = '' }) {
   const out = [];
   const prot = config.protectedBranch;
   const manual = config.manualBranches || [];
@@ -62,6 +62,9 @@ export function evaluate({ command = '', filePath, cwd = '.', branch, branchOf =
       if (!/\s--delete\b|\s-d\s/.test(seg) && dests.some((d) => d && isShip(d)))
         out.push(`Batch branches change only through ${cmd('fix.mjs')} done and ${cmd('ship.mjs')}; push your fix branch instead.`);
     }
+    // gh pr ... -R owner/name aimed at another repository: this repo's rules do not apply to it.
+    const other = /^gh\s+pr\b/.test(seg) && (seg.match(/(?:\s-R|\s--repo)[=\s]+(\S+)/) || [])[1];
+    if (other && repo && other.replace(/^https?:\/\/github\.com\//, '').replace(/\.git$/, '').toLowerCase() !== repo.toLowerCase()) continue;
     if (/review\.mjs\b.*--force\b/.test(seg)) out.push('Only the human re-opens review (--force). Stop and hand the fix over with the open findings.');
     // Each unlock opens only its own path: "hotfix" for hotfix/* branches, "ship" for batches.
     const may = (b) => (b && config.hotfixPrefixes.some((p) => b.startsWith(p)) ? unlocked.has('hotfix') : b && isShip(b) ? unlocked.has('ship') : false);
@@ -134,7 +137,8 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   const cmd = (f) => (existsSync(resolve(root, '.batchship', f)) ? `node .batchship/${f}` : `node "${resolve(import.meta.dirname, f)}"`);
   let unlocked = new Set();
   try { unlocked = unlockedFor(root, input.session_id ?? 'none'); } catch {}
-  const problems = evaluate({ command, filePath, cwd, branchOf, headOf, markerOf, config, unlocked, cmd, mergify: usesMergify(root, config) });
+  const repo = (git('remote get-url origin', root).match(/github\.com[:/](.+?)(?:\.git)?$/) || [])[1] || '';
+  const problems = evaluate({ command, filePath, cwd, branchOf, headOf, markerOf, config, unlocked, cmd, mergify: usesMergify(root, config), repo });
   // A repo whose .batchship copy is older than this plugin gets one line saying so.
   const v = (f) => { try { return JSON.parse(readFileSync(f, 'utf8')).version; } catch { return ''; } };
   const mine = v(resolve(import.meta.dirname, '../plugin.json')), theirs = existsSync(resolve(root, '.batchship/VERSION')) ? readFileSync(resolve(root, '.batchship/VERSION'), 'utf8').trim() : '0';

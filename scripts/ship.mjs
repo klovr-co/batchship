@@ -15,8 +15,8 @@ import { writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { loadConfig, withLivePolicy } from './config.mjs';
-import { sh, trySh, lines, q, gitPath, readJson, writeJson, onGitHub, batchCheckout, unlocked, usesMergify, queueOutcome, ESCALATE } from './lib.mjs';
-import { listBatches, todayBatch, DAY_SLUG } from './triage.mjs';
+import { sh, trySh, lines, q, gitPath, readJson, writeJson, onGitHub, batchCheckout, unlocked, usesMergify, queueOutcome, ESCALATE, sessionId } from './lib.mjs';
+import { listBatches, nextBatch, sessionBatchName, DAY_SLUG } from './triage.mjs';
 import { sameHarness } from './review.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -59,16 +59,19 @@ export function ship(cwd, wanted, { merge = false }) {
   const config = withLivePolicy(cwd, loadConfig(cwd));
   const live = config.protectedBranch;
   // The session that runs this must be the one where the user asked (Claude Code sets CLAUDE_CODE_SESSION_ID); a human at a terminal uses BATCHSHIP_ALLOW=1.
-  const session = process.env.CLAUDE_CODE_SESSION_ID;
+  const session = sessionId();
   const asked = (session && unlocked(cwd, session).has('ship')) || process.env.BATCHSHIP_ALLOW === '1';
   if (merge && !asked)
     throw new Error('--merge needs the user to ask for it in the session ("ship when done", "then ship", "ship now"). A human at a terminal can run BATCHSHIP_ALLOW=1 ship.mjs --merge.');
   const today = new Date();
   let batches = listBatches(cwd, { live, soloPaths: config.soloPaths });
   const withFixes = batches.filter((b) => b.state !== 'done' && b.commits.length);
+  // batchPer "session": an agent ships its own session's batch, never another thread's.
+  const own = config.batchPer === 'session' && session ? sessionBatchName(cwd, session) : null;
   const b = wanted ? batches.find((x) => x.name === wanted || x.name === `ship/${wanted}`)
+    : own ? batches.find((x) => x.name === own)
     : withFixes.find((x) => x.slug === DAY_SLUG && x.state === 'open') || (withFixes.length === 1 ? withFixes[0] : null);
-  if (!b) throw new Error(wanted ? `no batch ${wanted}` : `say which batch to ship: ${withFixes.map((x) => x.name).join(', ') || 'none has fixes yet'}`);
+  if (!b) throw new Error(wanted ? `no batch ${wanted}` : own ? `this session's batch ${own} is gone` : `say which batch to ship: ${withFixes.map((x) => x.name).join(', ') || 'none has fixes yet'}`);
   if (b.state === 'done') throw new Error(`${b.name} is already merged or closed`);
   if (!b.commits.length) throw new Error(`${b.name} has no fixes yet`);
   const bw = batchCheckout(cwd, b.name);
@@ -97,7 +100,7 @@ export function ship(cwd, wanted, { merge = false }) {
   const moved = [];
   const open = (batches.find((x) => x.name === b.name)?.fixes || []).filter((f) => f.state === 'open');
   if (open.length) {
-    const next = todayBatch(cwd, { batches, today, config }).batch;
+    const next = nextBatch(cwd, { batches, today, config, session, name: 'thread' }).batch;
     for (const f of open) try { sh(`gh pr edit ${f.number} --base ${next}`, cwd); moved.push(`#${f.number} -> ${next}`); } catch {}
   }
   if (!autoMerge({ merge, after: config.review.after, agent: sameHarness(), asked })) return { batch: b.name, pr, title, moved, merged: false };

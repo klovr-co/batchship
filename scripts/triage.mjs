@@ -10,7 +10,7 @@
 import { existsSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { loadConfig } from './config.mjs';
-import { sh, trySh, lines, q, ymd, slugify, worktrees, wtPath, install, usesMergify } from './lib.mjs';
+import { sh, trySh, lines, q, ymd, slugify, worktrees, wtPath, install, usesMergify, readJson, writeJson, sessionFile } from './lib.mjs';
 export { ymd, slugify } from './lib.mjs';
 
 const DAY = 86_400_000;
@@ -94,6 +94,27 @@ export function newBatch(cwd, name, { batches, today, config, reason }) {
   if (!reason) throw new Error('a separate batch needs --reason: it touches soloPaths, today\'s batch is full, or the user asked for it. Otherwise use today\'s batch (fix.mjs start <name>).');
   return { action: 'new', batch: createBatch(cwd, batchName(name, today, new Set(batches.map((b) => b.name))), config, reason), reason };
 }
+
+// batchPer "session": the session keeps its own batch while it takes fixes; once it ships (or a new day starts) the next fix
+// opens a new one, named after that fix. The reason commit says whose batch it is.
+export function sessionBatch(cwd, { batches, today, config, session, name }) {
+  const f = sessionFile(cwd);
+  const map = readJson(f) || {};
+  const mine = map[session] && batches.find((b) => b.name === map[session]);
+  if (mine && !whyNotJoinable(mine, today, config)) return { action: 'session', batch: mine.name, created: false };
+  const slug = slugify(name) && slugify(name) !== DAY_SLUG ? name : 'thread';
+  const r = newBatch(cwd, slug, { batches, today, config, reason: `one batch per thread (session ${String(session).slice(0, 8)})` });
+  writeJson(f, { ...map, [session]: r.batch });
+  return { action: 'session', batch: r.batch, created: true };
+}
+
+// Where new work goes: the session's own batch (batchPer "session", inside an agent session), else today's batch.
+export function nextBatch(cwd, { batches, today, config, session, name }) {
+  return config.batchPer === 'session' && session ? sessionBatch(cwd, { batches, today, config, session, name }) : todayBatch(cwd, { batches, today, config });
+}
+
+// The batch this session is filling, when batchPer is "session".
+export const sessionBatchName = (cwd, session) => (session && (readJson(sessionFile(cwd)) || {})[session]) || null;
 
 export function hotfix(cwd, name, { config, install: doInstall = true }) {
   if (!slugify(name)) throw new Error('name the hotfix, e.g. triage.mjs hotfix checkout-500');

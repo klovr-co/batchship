@@ -10,6 +10,8 @@ Never edit or commit on the live branch. For each task:
 2. Give each fix to a worker (T3 thread on its worktree, a subagent, or yourself) with the worker prompt below. Several workers can work on the same batch at once.
 3. Tell the user in one line where each fix went.
 
+With `batchPer: "session"` in `.ship.json`, "today's batch" means this thread's own batch: `fix.mjs start` opens `ship/<first-fix>-<date>` for the thread and keeps using it until it ships; `ship.mjs` ships only it. Other threads have their own. Start every fix of the thread from this thread (hand the printed worktree to a worker), so they share the batch.
+
 `node .batchship/triage.mjs list` shows the batches, their fixes and what shipping them costs. `node .batchship/triage.mjs prune` lists worktrees left over from merged branches; `--apply` removes them.
 
 ## Worker prompt

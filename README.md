@@ -109,6 +109,7 @@ A prompt hook records the request for that session for two hours, and each one o
 | `manualBranches` | `[]` | Human-only branches (e.g. `["main"]` when `staging` is live) |
 | `guardMode` | `warn` | `block` makes the guard deny instead of warn |
 | `checks` | detected | Fast local stand-ins for CI: `{ name, cmd, cwd?, paths?, quick? }` |
+| `batchPer` | `day` | `day`: every thread's fixes join today's batch `ship/day-<date>`. `session`: each agent session (a T3, Claude Code or Codex thread) gets its own batch `ship/<first-fix>-<date>`, and `ship.mjs` in that thread ships only that batch. One CI run per thread instead of per day |
 | `batchMaxAgeDays` | `0` | Days a batch takes new fixes; `0` = only the day it is dated (one batch per day) |
 | `batchMaxFiles` | `40` | Changed files (lockfiles aside) at which a batch is full; `0` = no cap |
 | `soloPaths` | `[]` | Path prefixes (e.g. `[".github/"]`) that must ship in a batch of their own |
