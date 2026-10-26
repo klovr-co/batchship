@@ -5,7 +5,7 @@ import { mkdtempSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { intents } from '../lib.mjs';
+import { intents, unlockFile } from '../lib.mjs';
 import { ymd } from '../triage.mjs';
 
 test('quoted text is not a request: code fences and > quotes', () => {
@@ -62,7 +62,7 @@ test('-R in a quoted argument does not skip the guard', () => {
   assert.deepEqual(evaluate({ ...base, command: 'gh pr merge 5 --repo=klovr-co/batchship' }), []);
 });
 
-test('batchPer session: a thread with no batch cannot ship another thread\'s', () => {
+test('batchPer session: a thread cannot merge another thread\'s batch', () => {
   const root = mkdtempSync(join(tmpdir(), 'session-own-'));
   const repo = join(root, 'repo');
   const sh = (cmd, cwd = repo) => execSync(cmd, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
@@ -78,9 +78,11 @@ test('batchPer session: a thread with no batch cannot ship another thread\'s', (
   writeFileSync(join(wt, 'cart.js'), 'c');
   sh('git add -A && git commit -qm "Cart total"', wt);
   as('thread-aaaa', 'fix.mjs', 'done', wt);
+  // thread-cccc has the user's "ship" but no batch: it may draft thread-aaaa's batch, never merge it.
+  writeFileSync(unlockFile(repo), JSON.stringify({ 'thread-cccc': { kinds: ['ship'], until: Date.now() + 3_600_000 } }));
   let err = '';
-  try { as('thread-cccc', 'ship.mjs', ''); } catch (e) { err = String(e.stderr); }
-  assert.match(err, /no batch of its own/);
+  try { as('thread-cccc', 'ship.mjs', '--merge'); } catch (e) { err = String(e.stderr); }
+  assert.match(err, /another thread's batch/);
   const other = as('thread-dddd', 'fix.mjs', `start "Label" --batch ship/cart-total-${ymd(new Date())} --no-install`);
   assert.match(other, /-> ship\/cart-total-/, 'an explicit --batch joins it');
   assert.match(as('thread-dddd', 'ship.mjs', ''), /SHIPPED ship\/cart-total-/, '--batch made it this session\'s batch too');

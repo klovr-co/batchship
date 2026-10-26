@@ -16,7 +16,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { loadConfig, withLivePolicy } from './config.mjs';
 import { sh, trySh, lines, q, gitPath, readJson, writeJson, onGitHub, batchCheckout, unlocked, usesMergify, queueOutcome, ESCALATE, sessionId } from './lib.mjs';
-import { listBatches, nextBatch, sessionBatchName, DAY_SLUG } from './triage.mjs';
+import { listBatches, nextBatch, sessionBatchName, sessionOwner, rememberSession, DAY_SLUG } from './triage.mjs';
 import { sameHarness } from './review.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -60,22 +60,30 @@ export function ship(cwd, wanted, { merge = false }) {
   const live = config.protectedBranch;
   // The session that runs this must be the one where the user asked (Claude Code sets CLAUDE_CODE_SESSION_ID); a human at a terminal uses BATCHSHIP_ALLOW=1.
   const session = sessionId();
-  const asked = (session && unlocked(cwd, session).has('ship')) || process.env.BATCHSHIP_ALLOW === '1';
+  const human = process.env.BATCHSHIP_ALLOW === '1';
+  const asked = (session && unlocked(cwd, session).has('ship')) || human;
   if (merge && !asked)
     throw new Error('--merge needs the user to ask for it in the session ("ship when done", "then ship", "ship now"). A human at a terminal can run BATCHSHIP_ALLOW=1 ship.mjs --merge.');
   const today = new Date();
   let batches = listBatches(cwd, { live, soloPaths: config.soloPaths });
   const withFixes = batches.filter((b) => b.state !== 'done' && b.commits.length);
   // batchPer "session": an agent ships its own session's batch, never another thread's.
-  const own = config.batchPer === 'session' && session ? sessionBatchName(cwd, session) : null;
-  if (config.batchPer === 'session' && session && !wanted && !own)
-    throw new Error('this session has no batch of its own (batchPer "session"): start a fix from this thread first, or name the batch to ship');
+  const perSession = config.batchPer === 'session' && session;
+  const own = perSession ? sessionBatchName(cwd, session) : null;
   const b = wanted ? batches.find((x) => x.name === wanted || x.name === `ship/${wanted}`)
     : own ? batches.find((x) => x.name === own)
     : withFixes.find((x) => x.slug === DAY_SLUG && x.state === 'open') || (withFixes.length === 1 ? withFixes[0] : null);
   if (!b) throw new Error(wanted ? `no batch ${wanted}` : own ? `this session's batch ${own} is gone` : `say which batch to ship: ${withFixes.map((x) => x.name).join(', ') || 'none has fixes yet'}`);
   if (b.state === 'done') throw new Error(`${b.name} is already merged or closed`);
   if (!b.commits.length) throw new Error(`${b.name} has no fixes yet`);
+  if (perSession && b.name !== own) {
+    // A batch no thread owns (made before batchPer "session", or by a human) is adopted by a session that has none yet.
+    // Any other batch belongs to another thread: this session may open its draft PR, but not merge it.
+    const owner = sessionOwner(cwd, b.name);
+    if (!own && !owner) rememberSession(cwd, session, b.name);
+    else if (merge && !human)
+      throw new Error(`${b.name} is ${owner ? 'another thread\'s batch' : 'not this session\'s batch'} (batchPer "session"${own ? `; this session's is ${own}` : ''}): ship it without --merge for a draft, and let its own thread or the human merge it`);
+  }
   const bw = batchCheckout(cwd, b.name);
   sh(`git fetch -q origin ${live} ${b.name}`, bw);
   try { sh(`git merge -q --no-edit origin/${live}`, bw); }

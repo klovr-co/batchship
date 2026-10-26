@@ -140,6 +140,8 @@ export function nextBatch(cwd, { batches, today, config, session, name }) {
   return config.batchPer === 'session' && session ? sessionBatch(cwd, { batches, today, config, session, name }) : todayBatch(cwd, { batches, today, config });
 }
 
+// The session whose batch this is, if any.
+export const sessionOwner = (cwd, batch) => (Object.entries(readJson(sessionFile(cwd)) || {}).find(([, v]) => v === batch) || [])[0] || null;
 // The batch this session is filling, when batchPer is "session".
 export const sessionBatchName = (cwd, session) => (session && (readJson(sessionFile(cwd)) || {})[session]) || null;
 
