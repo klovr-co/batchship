@@ -70,6 +70,11 @@ export function ship(cwd, wanted, { merge = false }) {
   // batchPer "session": an agent ships its own session's batch, never another thread's.
   const perSession = config.batchPer === 'session' && session;
   const own = perSession ? sessionBatchName(cwd, session) : null;
+  // Without a batch of its own a session names the batch to ship: a bare ship.mjs never picks up another thread's work.
+  if (perSession && !own && !wanted) {
+    const names = withFixes.map((x) => x.name);
+    throw new Error(`this session has no batch of its own (batchPer "session"): name the batch to ship${names.length ? ` (${names.join(', ')})` : ''}`);
+  }
   const b = wanted ? batches.find((x) => x.name === wanted || x.name === `ship/${wanted}`)
     : own ? batches.find((x) => x.name === own)
     : withFixes.find((x) => x.slug === DAY_SLUG && x.state === 'open') || (withFixes.length === 1 ? withFixes[0] : null);
@@ -77,10 +82,10 @@ export function ship(cwd, wanted, { merge = false }) {
   if (b.state === 'done') throw new Error(`${b.name} is already merged or closed`);
   if (!b.commits.length) throw new Error(`${b.name} has no fixes yet`);
   if (perSession && b.name !== own) {
-    // A batch no thread owns (made before batchPer "session", or by a human) is adopted by a session that has none yet.
-    // Any other batch belongs to another thread: this session may open its draft PR, but not merge it.
+    // A batch no thread owns (made before batchPer "session", or by a human) is adopted only when named explicitly, by a
+    // session that has none yet. Any other batch belongs to another thread: this session may open its draft PR, but not merge it.
     const owner = sessionOwner(cwd, b.name);
-    if (!own && !owner) rememberSession(cwd, session, b.name);
+    if (!own && !owner && wanted) rememberSession(cwd, session, b.name);
     else if (merge && !human)
       throw new Error(`${b.name} is ${owner ? 'another thread\'s batch' : 'not this session\'s batch'} (batchPer "session"${own ? `; this session's is ${own}` : ''}): ship it without --merge for a draft, and let its own thread or the human merge it`);
   }

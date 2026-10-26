@@ -5,7 +5,7 @@ import { mkdtempSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { intents, unlockFile } from '../lib.mjs';
+import { intents, unlockFile, sessionFile } from '../lib.mjs';
 import { ymd } from '../triage.mjs';
 
 test('quoted text is not a request: code fences and > quotes', () => {
@@ -81,7 +81,7 @@ test('batchPer session: a thread cannot merge another thread\'s batch', () => {
   // thread-cccc has the user's "ship" but no batch: it may draft thread-aaaa's batch, never merge it.
   writeFileSync(unlockFile(repo), JSON.stringify({ 'thread-cccc': { kinds: ['ship'], until: Date.now() + 3_600_000 } }));
   let err = '';
-  try { as('thread-cccc', 'ship.mjs', '--merge'); } catch (e) { err = String(e.stderr); }
+  try { as('thread-cccc', 'ship.mjs', `ship/cart-total-${ymd(new Date())} --merge`); } catch (e) { err = String(e.stderr); }
   assert.match(err, /another thread's batch/);
   const other = as('thread-dddd', 'fix.mjs', `start "Label" --batch ship/cart-total-${ymd(new Date())} --no-install`);
   assert.match(other, /-> ship\/cart-total-/, 'an explicit --batch joins it');
@@ -118,4 +118,31 @@ test('concurrent session writes keep every entry', async () => {
   const map = JSON.parse(readFileSync(f, 'utf8'));
   for (let i = 0; i < 12; i++) assert.equal(map[`s${i}`], `ship/b${i}`);
   assert.equal(existsSync(`${f}.lock`), false);
+});
+
+test('batchPer session: a bare ship.mjs never adopts a batch; naming it does', () => {
+  const root = mkdtempSync(join(tmpdir(), 'session-adopt-'));
+  const repo = join(root, 'repo');
+  const sh = (cmd, cwd = repo) => execSync(cmd, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+  const as = (session, name, a, cwd = repo) => sh(`CLAUDE_CODE_SESSION_ID=${session} CODEX_THREAD_ID= node ${join(import.meta.dirname, '..', name)} ${a}`, cwd);
+  execSync('git init -q --bare origin.git && git init -q -b main repo', { cwd: root });
+  sh(`git config user.email a@b && git config user.name t && git remote add origin ${join(root, 'origin.git')}`);
+  const ok = JSON.stringify({ verdict: 'approve', summary: 'fine', findings: [] }).replaceAll('"', '\\"');
+  writeFileSync(join(repo, '.ship.json'), JSON.stringify({ protectedBranch: 'main', batchPer: 'session', checks: [{ name: 'ok', cmd: 'true' }],
+    review: { reviewers: [{ name: 'r', cmd: `cat >/dev/null; echo "${ok}"` }] } }));
+  sh('git add -A && git commit -qm init && git push -q -u origin main');
+  // A batch no session owns: made before batchPer "session", outside any agent session.
+  const legacy = `ship/legacy-${ymd(new Date())}`;
+  as('', 'triage.mjs', 'new legacy --reason "made before batchPer session"');
+  const wt = as('', 'fix.mjs', `start "Old fix" --batch ${legacy} --no-install`).match(/work in: (.+)/)[1];
+  writeFileSync(join(wt, 'old.js'), 'o');
+  sh('git add -A && git commit -qm "Old fix"', wt);
+  as('', 'fix.mjs', 'done', wt);
+  const map = () => JSON.parse(readFileSync(sessionFile(repo), 'utf8') || '{}');
+  let err = '';
+  try { as('thread-eeee', 'ship.mjs', ''); } catch (e) { err = String(e.stderr); }
+  assert.match(err, new RegExp(`name the batch to ship \\(${legacy}\\)`));
+  assert.equal(existsSync(sessionFile(repo)) ? map()['thread-eeee'] : undefined, undefined, 'a bare ship.mjs adopts nothing');
+  assert.match(as('thread-eeee', 'ship.mjs', legacy), new RegExp(`SHIPPED ${legacy}`));
+  assert.equal(map()['thread-eeee'], legacy, 'naming the batch adopts it');
 });
