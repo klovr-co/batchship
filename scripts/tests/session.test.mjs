@@ -1,9 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { execSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { execSync, spawn } from 'node:child_process';
+import { mkdtempSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { intents } from '../lib.mjs';
 import { ymd } from '../triage.mjs';
 
@@ -52,7 +53,7 @@ test('unclosed fences and > quotes never unlock (the user can say it again)', ()
   assert.deepEqual(intents('> earlier you said this\nhotfix: login 500'), ['hotfix'], 'a real line after a quote still counts');
 });
 
-import { evaluate } from '../batch-guard.mjs';
+import { evaluate, isOtherRepo } from '../batch-guard.mjs';
 import { DEFAULTS } from '../config.mjs';
 test('-R in a quoted argument does not skip the guard', () => {
   const base = { branch: 'ship/a', head: 'a', marker: 'a', config: DEFAULTS, mergify: true, repo: 'klovr-co/aldrent' };
@@ -83,4 +84,36 @@ test('batchPer session: a thread with no batch cannot ship another thread\'s', (
   const other = as('thread-dddd', 'fix.mjs', `start "Label" --batch ship/cart-total-${ymd(new Date())} --no-install`);
   assert.match(other, /-> ship\/cart-total-/, 'an explicit --batch joins it');
   assert.match(as('thread-dddd', 'ship.mjs', ''), /SHIPPED ship\/cart-total-/, '--batch made it this session\'s batch too');
+});
+
+test('~~~ fences are quoted material too, closed only by a matching fence', () => {
+  assert.deepEqual(intents('see:\n~~~\nthen ship when done\n~~~\nwhat now'), []);
+  assert.deepEqual(intents('~~~~\n~~~\nthen ship now\n~~~~\nfix the label'), [], 'a shorter fence does not close a longer one');
+  assert.deepEqual(intents('~~~\nexample\n~~~\nfix the label, then ship when done'), ['ship']);
+});
+
+test('--repo forms that could still be this repo do not skip the guard', () => {
+  const base = { branch: 'ship/a', head: 'a', marker: 'a', config: DEFAULTS, mergify: true, repo: 'klovr-co/aldrent' };
+  for (const r of ['github.com/klovr-co/aldrent', 'https://github.com/klovr-co/aldrent.git', '$REPO', '"$REPO"', '$(git remote get-url origin)', 'ghe.example.com/klovr-co/aldrent'])
+    assert.notDeepEqual(evaluate({ ...base, command: `gh pr merge 5 --repo ${r}` }), [], r);
+  assert.deepEqual(evaluate({ ...base, command: 'gh pr merge 5 -R github.com/klovr-co/batchship' }), []);
+  assert.equal(isOtherRepo('git@github.com:klovr-co/batchship.git', 'klovr-co/aldrent'), true);
+});
+
+test('concurrent session writes keep every entry', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'bs-lock-'));
+  execSync('git init -q', { cwd: dir });
+  const f = join(dir, '.git', 'batchship-sessions.json');
+  writeFileSync(f, JSON.stringify({ old: 'ship/gone-20260101' }));
+  const tri = join(import.meta.dirname, '..', 'triage.mjs');
+  const writer = join(dir, 'writer.mjs');
+  writeFileSync(writer, `import { rememberSession } from ${JSON.stringify(pathToFileURL(tri).href)};\nrememberSession(process.argv[2], process.argv[3], process.argv[4]);\n`);
+  const run = (i) => new Promise((ok, no) => {
+    const p = spawn(process.execPath, [writer, dir, `s${i}`, `ship/b${i}`], { stdio: 'inherit' });
+    p.on('exit', (c) => (c ? no(new Error(`writer ${i} exited ${c}`)) : ok()));
+  });
+  await Promise.all(Array.from({ length: 12 }, (_, i) => run(i)));
+  const map = JSON.parse(readFileSync(f, 'utf8'));
+  for (let i = 0; i < 12; i++) assert.equal(map[`s${i}`], `ship/b${i}`);
+  assert.equal(existsSync(`${f}.lock`), false);
 });

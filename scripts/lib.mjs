@@ -80,11 +80,21 @@ export const UNLOCK_MS = 2 * 3600_000;
 //   "ship at the end", "ship now", "/ship-batch ship --merge"                                        -> ship
 // Not when the line is a question, or the phrase is quoted or follows "if" / "say".
 const SHIP = /\b(?:then\s+ship\b(?!\s+(?:flow|design|step|script))|ship(?:\s+(?:it|them|everything|all|these|this|the\s+batch|today'?s\s+batch))?\s+(?:(?:when|once|after)\s+(?:(?:it|they|everything|all|the\s+list|this|these|those|we)(?:'?s|'?re|\s+is|\s+are)?\s+)?(?:all\s+)?(?:done|finished|complete|completed)\b|after\s+(?:this|these|that|them|it|the\s+list|everything)\b|at\s+the\s+end\b|now\b))/i;
+// Markdown fenced blocks, ``` or ~~~: a block closes only on a line of the same character, at least as long as its opener.
+function unfence(text) {
+  let open = null;
+  return text.split('\n').filter((l) => {
+    const m = l.match(/^\s*(`{3,}|~{3,})/);
+    if (!open) { if (m) open = m[1]; return !m; }
+    if (m && m[1][0] === open[0] && m[1].length >= open.length && !l.trim().slice(m[1].length).trim()) open = null;
+    return false;
+  }).join('\n');
+}
 export function intents(prompt = '') {
   // Quoted material is not a request: drop fenced code blocks and > quote lines before reading the user's words.
   // An unclosed fence quotes everything after it: missing a real request only means the user says it again, while reading a
   // pasted example as one would merge work nobody asked to ship.
-  prompt = String(prompt).replace(/```[\s\S]*?(```|$)/g, '').split('\n').filter((l) => !/^\s*>/.test(l)).join('\n');
+  prompt = unfence(String(prompt)).replace(/```[\s\S]*?(```|$)/g, '').split('\n').filter((l) => !/^\s*>/.test(l)).join('\n');
   const ls = String(prompt).split('\n').map((l) => l.trim().replace(/^(please|pls|ok|okay|go|now|and)[,:]?\s+/i, ''));
   const asked = (l) => !/\?\s*$/.test(l);
   const kinds = [];

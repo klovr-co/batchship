@@ -7,7 +7,7 @@
 //   triage.mjs prune [--apply]             worktrees whose branch's PR has merged and that hold no uncommitted work; --apply removes them
 // Then work on fixes with fix.mjs (start, done) and ship a batch with ship.mjs.
 // Options: --json, --no-install (hotfix: skip installing dependencies)
-import { existsSync, renameSync } from 'node:fs';
+import { existsSync, mkdirSync, renameSync, rmSync, statSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { loadConfig } from './config.mjs';
 import { sh, trySh, lines, q, ymd, slugify, worktrees, wtPath, install, usesMergify, readJson, writeJson, sessionFile } from './lib.mjs';
@@ -106,18 +106,34 @@ export function sessionBatch(cwd, { batches, today, config, session, name }) {
   if (mine && !whyNotJoinable(mine, today, config)) return { action: 'session', batch: mine.name, created: false };
   const slug = slugify(name) && slugify(name) !== DAY_SLUG ? name : 'thread';
   const r = newBatch(cwd, slug, { batches, today, config, reason: `one batch per thread (session ${String(session).slice(0, 8)})` });
-  saveSession(f, map, session, r.batch);
+  saveSession(f, session, r.batch, done);
   return { action: 'session', batch: r.batch, created: true };
 }
 
-// Written to a temp file and renamed, so a reader never sees half a file. The newest entries on disk are merged in first,
-// last, so two sessions starting at once do not drop each other's entry.
-function saveSession(f, map, session, batch) {
+// One writer at a time (a lock directory), and each write starts from what is on disk now, so two sessions starting at once
+// both keep their entry. Written to a temp file and renamed, so a reader never sees half a file. `done` batches are dropped.
+function saveSession(f, session, batch, done = new Set()) {
+  const lock = `${f}.lock`;
+  for (let tries = 0; ; tries++) {
+    try { mkdirSync(lock); break; } catch (e) {
+      if (e.code !== 'EEXIST') throw e;
+      // A lock older than 30s was left by a process that died; anything else is a writer about to finish.
+      try { if (Date.now() - statSync(lock).mtimeMs > 30_000) { rmSync(lock, { recursive: true, force: true }); continue; } } catch {}
+      if (tries > 200) throw new Error(`${lock} is held; remove it if no batchship command is running`);
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25);
+    }
+  }
   const tmp = `${f}.${process.pid}.tmp`;
-  writeJson(tmp, { ...map, ...(readJson(f) || {}), [session]: batch });
-  renameSync(tmp, f);
+  try {
+    const map = Object.fromEntries(Object.entries(readJson(f) || {}).filter(([, v]) => !done.has(v)));
+    writeJson(tmp, { ...map, [session]: batch });
+    renameSync(tmp, f);
+  } finally {
+    rmSync(tmp, { force: true });
+    rmSync(lock, { recursive: true, force: true });
+  }
 }
-export const rememberSession = (cwd, session, batch) => saveSession(sessionFile(cwd), {}, session, batch);
+export const rememberSession = (cwd, session, batch) => saveSession(sessionFile(cwd), session, batch);
 
 // Where new work goes: the session's own batch (batchPer "session", inside an agent session), else today's batch.
 export function nextBatch(cwd, { batches, today, config, session, name }) {

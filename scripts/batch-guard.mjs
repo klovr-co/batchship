@@ -18,6 +18,13 @@ const triageFirst = (b, cmd) => `You are on ${b}, a live branch: do not edit or 
 // unlocked: what the user asked for in this session ('hotfix', 'ship'), recorded from their own prompt by intent.mjs.
 // cmd(script): how to run a batchship script here (the repo's .batchship copy, or the plugin's when the repo has none yet).
 // mergify: the repo merges into the live branch through the Mergify queue, so nobody merges those PRs by hand.
+// gh takes [HOST/]OWNER/REPO or a URL. Only a literal github.com target that is plainly not this repo is skipped: a variable,
+// a substitution or another host could still be this repo, so those stay under the rules.
+export function isOtherRepo(value, repo) {
+  if (/[$`(){}<>*?\\]/.test(value)) return false;
+  const name = value.replace(/^(?:https?:\/\/|ssh:\/\/)?(?:[\w.-]+@)?(?:www\.)?github\.com[:/]/i, '').replace(/\.git$/i, '').replace(/\/+$/, '');
+  return /^[\w.-]+\/[\w.-]+$/.test(name) && name.toLowerCase() !== repo.toLowerCase();
+}
 export function evaluate({ command = '', filePath, cwd = '.', branch, branchOf = () => branch, head, headOf = () => head, marker, markerOf = () => marker,
   config, unlocked = new Set(), cmd = (f) => `node .batchship/${f}`, mergify = false, repo = '' }) {
   const out = [];
@@ -65,7 +72,7 @@ export function evaluate({ command = '', filePath, cwd = '.', branch, branchOf =
     // gh pr ... -R owner/name aimed at another repository: this repo's rules do not apply to it.
     const bare = seg.replace(/"(?:[^"\\]|\\.)*"|'[^']*'/g, '""'); // quoted arguments (--body "...") cannot name the repo
     const other = /^gh\s+pr\b/.test(seg) && (bare.match(/(?:\s-R|\s--repo)[=\s]+([^\s"']+)/) || [])[1];
-    if (other && repo && other.replace(/^https?:\/\/github\.com\//, '').replace(/\.git$/, '').toLowerCase() !== repo.toLowerCase()) continue;
+    if (other && repo && isOtherRepo(other, repo)) continue;
     if (/review\.mjs\b.*--force\b/.test(seg)) out.push('Only the human re-opens review (--force). Stop and hand the fix over with the open findings.');
     // Each unlock opens only its own path: "hotfix" for hotfix/* branches, "ship" for batches.
     const may = (b) => (b && config.hotfixPrefixes.some((p) => b.startsWith(p)) ? unlocked.has('hotfix') : b && isShip(b) ? unlocked.has('ship') : false);
