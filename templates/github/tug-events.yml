@@ -36,7 +36,8 @@ jobs:
             if (label === 'needs-owner') {
               if (owners.length) await github.rest.issues.addAssignees({ owner, repo, issue_number: pr.number, assignees: owners });
               const first = String(pr.body || '').split(/\r?\n/).map(l => l.trim()).find(Boolean) || String(pr.title || '');
-              const decision = first.replace(/^needs owner:\s*/i, '').slice(0, 500);
+              // "@" + zero-width space: the bot repeating the body must not notify the people or teams it names.
+              const decision = first.replace(/^needs owner:\s*/i, '').slice(0, 500).replace(/@(?=[\w-])/g, '@\u200b');
               await comment(`Needs your decision: ${decision}`);
             } else if (label === 'hold') {
               await comment('On hold. Say ship to release it.');
@@ -75,7 +76,7 @@ jobs:
               body = `Deploy failed: ${run.html_url}${which}`;
             } else return core.info(`conclusion ${run.conclusion}: nothing to report (a later run deploys it)`);
             const prs = (await github.rest.repos.listPullRequestsAssociatedWithCommit({ owner, repo, commit_sha: sha })).data;
-            const pr = prs.find(p => p.merge_commit_sha === sha) || prs.find(p => p.merged_at) || prs[0];
+            const pr = prs.find(p => p.merge_commit_sha === sha) || prs.find(p => p.merged_at && p.base?.ref === process.env.TUG_SHIP_BRANCH);
             if (!pr) return core.info(`no PR for ${sha}`);
             await github.rest.issues.createComment({ owner, repo, issue_number: pr.number, body });
 
@@ -85,6 +86,7 @@ jobs:
     timeout-minutes: 2
     concurrency: tug-live-red
     permissions:
+      actions: read
       issues: write
     steps:
       - uses: actions/github-script@{{githubScript}}
@@ -98,6 +100,9 @@ jobs:
             const branch = process.env.TUG_SHIP_BRANCH;
             if (run.head_branch !== branch || /^pull_request/.test(run.event)) return core.info('not a run on the ship branch');
             const owners = JSON.parse(process.env.TUG_OWNERS || '[]');
+            // Runs can finish out of order: only the newest finished run on the branch speaks.
+            const latest = (await github.rest.actions.listWorkflowRuns({ owner, repo, workflow_id: run.workflow_id, branch, status: 'completed', per_page: 1, exclude_pull_requests: true })).data.workflow_runs?.[0];
+            if (latest && latest.id !== run.id && latest.run_number > run.run_number) return core.info(`run ${latest.id} is newer: it decides`);
             const title = 'Live branch is red';
             const issues = await github.paginate(github.rest.issues.listForRepo, { owner, repo, state: 'open', creator: 'github-actions[bot]', per_page: 100 });
             const open = issues.find(i => !i.pull_request && i.title === title);
@@ -110,6 +115,10 @@ jobs:
             if (!['failure', 'timed_out', 'startup_failure'].includes(run.conclusion)) return core.info(`conclusion ${run.conclusion}: nothing to report`);
             const body = `${run.name} failed on ${branch} at ${run.head_sha.slice(0, 7)}: ${run.html_url}`;
             let number = open?.number;
-            if (number) await github.rest.issues.createComment({ owner, repo, issue_number: number, body });
-            else number = (await github.rest.issues.create({ owner, repo, title, body })).data.number;
+            try {
+              if (number) await github.rest.issues.createComment({ owner, repo, issue_number: number, body });
+              else number = (await github.rest.issues.create({ owner, repo, title, body })).data.number;
+            } catch (err) {
+              return core.warning(`could not open the issue (are Issues turned off?): ${err.message}`);
+            }
             if (owners.length) await github.rest.issues.addAssignees({ owner, repo, issue_number: number, assignees: owners });

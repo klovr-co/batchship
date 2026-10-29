@@ -1,6 +1,6 @@
 // Hook installation, always into a temp HOME: the real ~/.claude and ~/.codex are never read or written.
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, test } from 'node:test';
@@ -109,4 +109,23 @@ test('doctor: the installed command really fires (a probe through this tug), or 
   const broken = guardHookChecks({ cwd: repo, env })[1];
   assert.equal(broken.ok, false);
   assert.match(broken.detail, /does not run/);
+});
+
+test('installGuard writes through a symlink, keeps the mode and the first backup, and removes duplicate guards', () => {
+  const env = tempHome();
+  const [claude] = harnesses(env);
+  const target = join(env.HOME, 'dotfiles-settings.json');
+  writeFileSync(target, JSON.stringify(EXISTING));
+  chmodSync(target, 0o600);
+  symlinkSync(target, claude.path);
+  installGuard(claude, { command: CMD });
+  assert.ok(lstatSync(claude.path).isSymbolicLink(), 'the link is still a link');
+  assert.equal(installedGuard(target), CMD);
+  assert.equal(statSync(target).mode & 0o777, 0o600);
+  assert.deepEqual(JSON.parse(readFileSync(`${target}.tug-backup`, 'utf8')), EXISTING);
+  installGuard(claude, { command: CMD.replace('/opt/', '/new/') });
+  assert.deepEqual(JSON.parse(readFileSync(`${target}.tug-backup`, 'utf8')), EXISTING, 'the backup is the pre-tug file');
+  const doubled = { hooks: { Stop: [{ hooks: [{ type: 'command', command: CMD }] }, { hooks: [{ type: 'command', command: 'say hi' }, { type: 'command', command: 'tug guard --hook claude' }] }] } };
+  const { settings } = mergeGuardHook(doubled, CMD);
+  assert.deepEqual(settings.hooks.Stop, [{ hooks: [{ type: 'command', command: CMD }] }, { hooks: [{ type: 'command', command: 'say hi' }] }]);
 });

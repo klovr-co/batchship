@@ -50,6 +50,7 @@ test('recordSessionPr is idempotent and only ever adds queued', () => {
   recordSessionPr(dir, 's1', { number: 4 });
   assert.deepEqual(readJson(sessionPath(dir, 's1')).prs.map(p => [p.number, p.queued]), [[3, true], [4, false]]);
   assert.throws(() => sessionPath(dir, '../evil'), /bad session id/);
+  assert.ok(!existsSync(`${sessionPath(dir, 's1')}.lock`), 'the lock is released');
 });
 
 test('--status: running, done, gone, none; found from another worktree', () => {
@@ -99,4 +100,16 @@ test('tug ship --background on a refusal: one line with next:, the state says wh
   assert.equal(readJson(shipStatePath(dir, 7)).waiting, 'needs-owner');
   assert.deepEqual(readJson(sessionPath(dir, 'sess-r')).prs.map(p => [p.number, p.queued]), [[7, false]], 'recorded, not queued');
   assert.ok(existsSync(join(dir, '.agents/state/.gitignore')));
+});
+
+test('several tug ship processes recording one session at once lose no PR', async () => {
+  const dir = repo();
+  const { spawn } = await import('node:child_process');
+  const lib = new URL('../lib/state.mjs', import.meta.url).href;
+  const runs = Array.from({ length: 8 }, (_, i) => new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, ['--input-type=module', '-e', `import { recordSessionPr } from ${JSON.stringify(lib)}; for (let k = 0; k < 5; k++) recordSessionPr(${JSON.stringify(dir)}, 'race', { number: ${i + 1} * 100 + k, queued: true });`], { stdio: 'inherit' });
+    child.on('exit', code => (code === 0 ? resolve() : reject(new Error(`exit ${code}`))));
+  }));
+  await Promise.all(runs);
+  assert.equal(readJson(sessionPath(dir, 'race')).prs.length, 40);
 });

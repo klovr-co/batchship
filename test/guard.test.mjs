@@ -58,7 +58,8 @@ test('evaluate (a): a queued PR must be live or followed by a live tug ship', ()
   assert.match(one(running({ updatedAt: new Date(NOW - 3_600_000).toISOString() }))[0].text, /no tug ship is following/, 'stale heartbeat (pid reused)');
   assert.match(one(null)[0].text, /no tug ship is following/, 'no state at all');
   const failed = one(done(4));
-  assert.equal(failed[0].key, 'pr-5-exit-4');
+  assert.equal(failed[0].key, 'pr-5-exit-4-2026-10-29T12:00:00.000Z');
+  assert.equal(failed[0].once, true);
   assert.equal(failed[0].text, 'PR #5 is not live: tug ship #5: result 4 · next: do the thing');
   assert.deepEqual(evaluate({ prs: [{ number: 5, queued: false, state: done(3) }], message: '', isAlive: alive, now: NOW }), [], 'never queued: not this rule');
 });
@@ -94,6 +95,11 @@ test('decide: at most 2 blocks per turn, each reason once; a new turn starts ove
   assert.equal(decide({ reasons: [r('c')], counter: c2, stopHookActive: true }).reason, null, 'cap without turn ids');
   assert.equal(decide({ reasons: [r('a')], counter: c2, stopHookActive: false }).reason, 'tug guard: reason a');
   assert.equal(decide({ reasons: [r('a'), r('b')], counter: null }).reason, 'tug guard: reason a Also: reason b', 'one line');
+  // A finished run's result blocks once per session, not at the start of every later turn.
+  const once = { key: 'pr-5-exit-4-t', once: true, text: 'failed' };
+  const c3 = decide({ reasons: [once], counter: null, turnKey: 'p1' }).counter;
+  assert.equal(decide({ reasons: [once], counter: c3, turnKey: 'p2' }).reason, null);
+  assert.equal(decide({ reasons: [once, r('q')], counter: c3, turnKey: 'p2' }).reason, 'tug guard: reason q');
 });
 
 /** A tug repo (config present) with a worktree; the session's records live in the worktree, as tug ship writes them. */
@@ -159,6 +165,10 @@ test('the Stop hook fails open and stays out of the way', async () => {
   assert.deepEqual((await hook({ hook_event_name: 'SubagentStop', session_id: 's', cwd: root, last_assistant_message: 'Which one?' })).out, [], 'only Stop');
   assert.deepEqual((await hook({ tug_probe: true })).out, ['{"tug_probe":"ok"}'], 'doctor\'s probe');
   assert.deepEqual(runGuard({ payload: { hook_event_name: 'Stop', cwd: root, last_assistant_message: 'Fine.' }, env: {} }), { reason: null });
+  // No session id anywhere: a question blocks the first stop only, never a hook continuation (no endless loop).
+  const noId = { hook_event_name: 'Stop', cwd: root, last_assistant_message: 'Which one?' };
+  assert.match(JSON.parse((await hook({ ...noId, stop_hook_active: false })).out[0]).reason, /asked the user a question/);
+  assert.deepEqual((await hook({ ...noId, stop_hook_active: true })).out, []);
 });
 
 test('live labels are looked up only when the message asks a question', async () => {

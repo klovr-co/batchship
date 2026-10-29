@@ -41,7 +41,7 @@ async function runScript(source, { payload, env, api = {} }) {
     rest: {
       issues: { createComment: rec('createComment'), addAssignees: rec('addAssignees'), create: rec('create'), update: rec('update'), listForRepo: 'listForRepo' },
       repos: { listPullRequestsAssociatedWithCommit: rec('listPrs') },
-      actions: { listJobsForWorkflowRun: 'listJobs' },
+      actions: { listJobsForWorkflowRun: 'listJobs', listWorkflowRuns: rec('listRuns') },
     },
     paginate: async (what, args) => {
       calls.push({ name: what, args });
@@ -49,7 +49,7 @@ async function runScript(source, { payload, env, api = {} }) {
     },
   };
   const context = { payload, repo: { owner: 'o', repo: 'r' } };
-  const core = { info: () => {} };
+  const core = { info: () => {}, warning: () => {} };
   await new AsyncFunction('github', 'context', 'core', 'process', source)(github, context, core, { env });
   return calls;
 }
@@ -116,6 +116,8 @@ test('label script: needs-owner assigns the owners and quotes the first body lin
   const calls = await runScript(src, { env, payload: { label: { name: 'needs-owner' }, pull_request: { number: 9, title: hostile, body: `\n\nNeeds owner: drop the ${hostile} table?\nmore` } } });
   assert.deepEqual(calls[0], { name: 'addAssignees', args: { owner: 'o', repo: 'r', issue_number: 9, assignees: ['octocat', 'hubot'] } });
   assert.equal(calls[1].args.body, `Needs your decision: drop the ${hostile} table?`);
+  const mention = await runScript(src, { env, payload: { label: { name: 'needs-owner' }, pull_request: { number: 9, body: 'Needs owner: ask @org/team and @alice' } } });
+  assert.equal(mention.at(-1).args.body, 'Needs your decision: ask @\u200borg/team and @\u200balice', 'repeating the body notifies nobody');
   const noBody = await runScript(src, { env: { TUG_OWNERS: '[]' }, payload: { label: { name: 'needs-owner' }, pull_request: { number: 9, title: hostile, body: null } } });
   assert.deepEqual(noBody.map(c => c.name), ['createComment'], 'no owners: nobody assigned');
   assert.equal(noBody[0].args.body, `Needs your decision: ${hostile}`);
@@ -141,19 +143,25 @@ test('deploy script: deployed, every deploy job skipped, failed, and runs off th
   assert.equal(failed.at(-1).args.body, 'Deploy failed: https://gh/run/5');
   assert.deepEqual((await run({ conclusion: 'cancelled' })).map(c => c.name), [], 'a cancelled run (superseded) says nothing');
   assert.deepEqual((await run({ head_branch: '$(evil)' })).map(c => c.name), [], 'another branch says nothing');
+  const unrelated = await runScript(src, { env, payload: { workflow_run: { id: 5, name: 'Deploy web', head_branch: 'main', event: 'push', head_sha: sha, conclusion: 'failure', html_url: 'u' } }, api: { listPrs: () => ({ data: [{ number: 3, merge_commit_sha: null, merged_at: null }] }) } });
+  assert.ok(!unrelated.some(c => c.name === 'createComment'), 'an open PR that merely contains the sha gets nothing');
   assert.deepEqual((await run({ event: 'pull_request' })).map(c => c.name), []);
 });
 
 test('live-red script: opens one issue and assigns the owners, then updates it, then closes it when green', async () => {
   const src = scripts(renderEvents(config(), WORKFLOWS))['live-red'];
   const env = { TUG_SHIP_BRANCH: 'main', TUG_OWNERS: '["octocat"]' };
-  const wr = extra => ({ workflow_run: { name: 'CI', head_branch: 'main', event: 'push', head_sha: 'f'.repeat(40), conclusion: 'failure', html_url: 'https://gh/run/9', ...extra } });
+  const wr = extra => ({ workflow_run: { id: 9, run_number: 30, workflow_id: 3, name: 'CI', head_branch: 'main', event: 'push', head_sha: 'f'.repeat(40), conclusion: 'failure', html_url: 'https://gh/run/9', ...extra } });
   const first = await runScript(src, { env, payload: wr(), api: { listForRepo: () => [{ number: 1, title: 'Live branch is red', pull_request: {} }], create: () => ({ data: { number: 12 } }) } });
   assert.deepEqual(first.find(c => c.name === 'create').args, { owner: 'o', repo: 'r', title: 'Live branch is red', body: 'CI failed on main at fffffff: https://gh/run/9' });
   assert.deepEqual(first.find(c => c.name === 'addAssignees').args.issue_number, 12);
   const again = await runScript(src, { env, payload: wr(), api: { listForRepo: () => [{ number: 12, title: 'Live branch is red' }] } });
-  assert.deepEqual(again.map(c => c.name), ['listForRepo', 'createComment', 'addAssignees']);
+  assert.deepEqual(again.map(c => c.name), ['listRuns', 'listForRepo', 'createComment', 'addAssignees']);
   const green = await runScript(src, { env, payload: wr({ conclusion: 'success' }), api: { listForRepo: () => [{ number: 12, title: 'Live branch is red' }] } });
-  assert.deepEqual(green.map(c => c.name), ['listForRepo', 'createComment', 'update']);
+  assert.deepEqual(green.map(c => c.name), ['listRuns', 'listForRepo', 'createComment', 'update']);
+  const stale = await runScript(src, { env, payload: wr(), api: { listRuns: () => ({ data: { workflow_runs: [{ id: 10, run_number: 31 }] } }) } });
+  assert.deepEqual(stale.map(c => c.name), ['listRuns'], 'an older failure after a newer run says nothing');
+  const off = await runScript(src, { env, payload: wr(), api: { create: () => { throw new Error('HTTP 410 Issues are disabled'); } } });
+  assert.ok(!off.some(c => c.name === 'addAssignees'), 'issues off: warns, does not throw');
   assert.deepEqual((await runScript(src, { env, payload: wr({ head_branch: 'feature' }) })).map(c => c.name), []);
 });
