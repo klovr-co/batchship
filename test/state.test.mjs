@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { after, test } from 'node:test';
 import { shipCommand } from '../bin/tug.mjs';
-import { findShipState, formatStatus, readJson, recordSessionPr, sessionFromEnv, sessionPath, shipReporter, shipStatePath } from '../lib/state.mjs';
+import { acquireShipLock, findShipState, formatStatus, readJson, recordSessionPr, sessionFromEnv, sessionPath, shipReporter, shipStatePath } from '../lib/state.mjs';
 import { World } from './fake-mergify.mjs';
 import { assertInTmp, removeRepo, tempRepo, testGit } from './helpers.mjs';
 
@@ -112,4 +112,33 @@ test('several tug ship processes recording one session at once lose no PR', asyn
   }));
   await Promise.all(runs);
   assert.equal(readJson(sessionPath(dir, 'race')).prs.length, 40);
+});
+
+test('one tug ship per PR: a second run exits 2 and leaves the first run\'s state alone; a stale lock is taken over', async () => {
+  const dir = repo();
+  const w = new World({ deploys: { 'deploy.yml': { conclusion: 'success' } } });
+  const o = w.opts();
+  const run = extra => {
+    const out = [];
+    return shipCommand({ root: dir, number: 7, background: true, env: {}, client: o.client, config: o.config, workflowFiles: ['deploy.yml'], sleep: o.sleep, clock: o.clock, out: t => out.push(t), err: () => {}, ...extra }).then(code => ({ code, out }));
+  };
+  // A live holder: this test's own pid, with a fresh heartbeat in a finished-looking state that must survive.
+  const held = acquireShipLock(dir, 7, { now: o.clock() });
+  assert.ok(held.ok);
+  const finished = { status: 'done', code: 0, line: 'tug ship #7: merged', pid: process.pid, updatedAt: new Date(o.clock()).toISOString() };
+  writeFileSync(shipStatePath(dir, 7), JSON.stringify(finished));
+  const second = await run();
+  assert.equal(second.code, 2);
+  assert.deepEqual(second.out, [`tug ship #7: already shipping #7 (pid ${process.pid}) · next: wait for that run (tug ship --status 7); you are woken when it exits`]);
+  assert.deepEqual(readJson(shipStatePath(dir, 7)), finished, 'the finished result is not overwritten');
+  assert.equal(acquireShipLock(dir, 7, { now: o.clock() }).ok, false);
+  held.release();
+  // A lock left by a dead run (or one that stopped beating) is stale.
+  writeFileSync(join(dir, '.agents/state/ship-7.lock'), JSON.stringify({ pid: process.pid, at: new Date(o.clock() - 3_600_000).toISOString() }));
+  const third = await run();
+  assert.equal(third.code, 0, third.out.join('\n'));
+  assert.ok(!existsSync(join(dir, '.agents/state/ship-7.lock')), 'released after the run');
+  assert.equal(acquireShipLock(dir, 8, { isAlive: () => false }).ok, true);
+  writeFileSync(join(dir, '.agents/state/ship-9.lock'), JSON.stringify({ pid: 999999, at: new Date().toISOString() }));
+  assert.equal(acquireShipLock(dir, 9, { isAlive: () => false }).ok, true, 'holder pid gone');
 });

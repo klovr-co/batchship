@@ -163,5 +163,9 @@ test('live-red script: opens one issue and assigns the owners, then updates it, 
   assert.deepEqual(stale.map(c => c.name), ['listRuns'], 'an older failure after a newer run says nothing');
   const off = await runScript(src, { env, payload: wr(), api: { create: () => { throw new Error('HTTP 410 Issues are disabled'); } } });
   assert.ok(!off.some(c => c.name === 'addAssignees'), 'issues off: warns, does not throw');
+  for (const conclusion of ['failure', 'success']) {
+    const listOff = await runScript(src, { env, payload: wr({ conclusion }), api: { listForRepo: () => { throw new Error('HTTP 410 Issues are disabled'); } } });
+    assert.deepEqual(listOff.map(c => c.name), ['listRuns', 'listForRepo'], `listing issues fails on ${conclusion}: a warning, not a red run`);
+  }
   assert.deepEqual((await runScript(src, { env, payload: wr({ head_branch: 'feature' }) })).map(c => c.name), []);
 });

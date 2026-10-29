@@ -11,7 +11,7 @@ import { guardMain } from '../lib/guard.mjs';
 import { applyInit } from '../lib/init.mjs';
 import { setup } from '../lib/setup.mjs';
 import { EXIT, ship } from '../lib/ship.mjs';
-import { findShipState, formatStatus, recordSessionPr, sessionFromEnv, shipReporter } from '../lib/state.mjs';
+import { acquireShipLock, findShipState, formatStatus, recordSessionPr, sessionFromEnv, shipReporter } from '../lib/state.mjs';
 import { upkeep } from '../lib/upkeep.mjs';
 import { VERSION } from '../lib/version.mjs';
 
@@ -104,6 +104,23 @@ export async function main(argv = process.argv.slice(2)) {
  */
 export async function shipCommand({ root, number, now = false, background = false, env = process.env, client, config, workflowFiles, sleep: baseSleep = ms => new Promise(r => setTimeout(r, ms)), clock = Date.now, out = console.log, err = console.error }) {
   const session = sessionFromEnv(env);
+  // One run per PR: a second one would race the first on the PR and overwrite its result.
+  const lock = acquireShipLock(root, number, { now: clock() });
+  if (!lock.ok) {
+    const line = `tug ship #${number}: already shipping #${number} (pid ${lock.pid})`;
+    const next = `wait for that run (tug ship --status ${number}); you are woken when it exits`;
+    out(background ? `${line} · next: ${next}` : line);
+    if (!background) out(`next: ${next}`);
+    return EXIT.refused;
+  }
+  try {
+    return await shipLocked({ root, number, now, background, session, client, config, workflowFiles, baseSleep, clock, out, err });
+  } finally {
+    lock.release();
+  }
+}
+
+async function shipLocked({ root, number, now, background, session, client, config, workflowFiles, baseSleep, clock, out, err }) {
   const reporter = shipReporter({ root, number, session, clock });
   const record = queued => {
     try {

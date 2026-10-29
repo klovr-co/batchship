@@ -104,21 +104,22 @@ jobs:
             const latest = (await github.rest.actions.listWorkflowRuns({ owner, repo, workflow_id: run.workflow_id, branch, status: 'completed', per_page: 1, exclude_pull_requests: true })).data.workflow_runs?.[0];
             if (latest && latest.id !== run.id && latest.run_number > run.run_number) return core.info(`run ${latest.id} is newer: it decides`);
             const title = 'Live branch is red';
-            const issues = await github.paginate(github.rest.issues.listForRepo, { owner, repo, state: 'open', creator: 'github-actions[bot]', per_page: 100 });
-            const open = issues.find(i => !i.pull_request && i.title === title);
-            if (run.conclusion === 'success') {
-              if (!open) return;
-              await github.rest.issues.createComment({ owner, repo, issue_number: open.number, body: `Green again at ${run.head_sha.slice(0, 7)}: ${run.html_url}` });
-              await github.rest.issues.update({ owner, repo, issue_number: open.number, state: 'closed' });
-              return;
-            }
-            if (!['failure', 'timed_out', 'startup_failure'].includes(run.conclusion)) return core.info(`conclusion ${run.conclusion}: nothing to report`);
-            const body = `${run.name} failed on ${branch} at ${run.head_sha.slice(0, 7)}: ${run.html_url}`;
-            let number = open?.number;
+            if (!['success', 'failure', 'timed_out', 'startup_failure'].includes(run.conclusion)) return core.info(`conclusion ${run.conclusion}: nothing to report`);
+            // Every Issues call in one try: a repo with Issues turned off gets a warning, not a red run.
             try {
+              const issues = await github.paginate(github.rest.issues.listForRepo, { owner, repo, state: 'open', creator: 'github-actions[bot]', per_page: 100 });
+              const open = issues.find(i => !i.pull_request && i.title === title);
+              if (run.conclusion === 'success') {
+                if (!open) return;
+                await github.rest.issues.createComment({ owner, repo, issue_number: open.number, body: `Green again at ${run.head_sha.slice(0, 7)}: ${run.html_url}` });
+                await github.rest.issues.update({ owner, repo, issue_number: open.number, state: 'closed' });
+                return;
+              }
+              const body = `${run.name} failed on ${branch} at ${run.head_sha.slice(0, 7)}: ${run.html_url}`;
+              let number = open?.number;
               if (number) await github.rest.issues.createComment({ owner, repo, issue_number: number, body });
               else number = (await github.rest.issues.create({ owner, repo, title, body })).data.number;
+              if (owners.length) await github.rest.issues.addAssignees({ owner, repo, issue_number: number, assignees: owners });
             } catch (err) {
-              return core.warning(`could not open the issue (are Issues turned off?): ${err.message}`);
+              core.warning(`could not update the "${title}" issue (are Issues turned off?): ${err.message}`);
             }
-            if (owners.length) await github.rest.issues.addAssignees({ owner, repo, issue_number: number, assignees: owners });

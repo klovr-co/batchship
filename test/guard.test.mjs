@@ -23,6 +23,10 @@ test('asksQuestion: a sentence ending in ? in prose, not in code, quotes or link
   assert.equal(asksQuestion('See https://example.com/search?q=x for details.'), false);
   assert.equal(asksQuestion('> Is it live?\nIt is live.'), false);
   assert.equal(asksQuestion(null), false);
+  assert.equal(asksQuestion('Is it live? Yes. Deployed abc1234.'), false, 'answered in the same paragraph');
+  assert.equal(asksQuestion('Why? Because the batch was red.'), false, 'rhetorical');
+  assert.equal(asksQuestion('Is it live?\n\nYes.'), true, 'the answer is not in the same paragraph');
+  assert.equal(asksQuestion('Is it live? Yes. Want me to ship the other one?'), true, 'a later question still counts');
 });
 
 test('lastMessage: the payload field first, else the transcript (Claude Code and Codex JSONL)', () => {
@@ -57,6 +61,9 @@ test('evaluate (a): a queued PR must be live or followed by a live tug ship', ()
   assert.match(one(running({ pid: 99 }))[0].text, /no tug ship is following it: run `tug ship 5 --background`/, 'pid gone');
   assert.match(one(running({ updatedAt: new Date(NOW - 3_600_000).toISOString() }))[0].text, /no tug ship is following/, 'stale heartbeat (pid reused)');
   assert.match(one(null)[0].text, /no tug ship is following/, 'no state at all');
+  assert.equal(one(null)[0].once, true, 'once per session per PR');
+  assert.deepEqual(one(running({ pid: 99 }), { open: false }), [], 'GitHub says closed or merged: nothing to follow');
+  assert.equal(one(running({ pid: 99 }), { open: null }).length, 1, 'GitHub unreachable: the stored state decides');
   const failed = one(done(4));
   assert.equal(failed[0].key, 'pr-5-exit-4-2026-10-29T12:00:00.000Z');
   assert.equal(failed[0].once, true);
@@ -67,7 +74,9 @@ test('evaluate (a): a queued PR must be live or followed by a live tug ship', ()
 test('evaluate (b): a question needs an open needs-owner PR from this session', () => {
   const q = 'Should I drop the old table?';
   const ev = prs => evaluate({ prs, message: q, isAlive: alive, now: NOW }).map(r => r.key);
-  assert.deepEqual(ev([]), ['question']);
+  assert.deepEqual(ev([]), [], 'no tracked PR: a question is ordinary conversation');
+  assert.deepEqual(evaluate({ prs: [], message: 'Which file did you mean?', isAlive: alive, now: NOW }), []);
+  assert.deepEqual(ev([{ number: 5, queued: false, state: null, labels: [], open: true }]), ['question']);
   assert.deepEqual(ev([{ number: 5, queued: false, state: null, labels: ['needs-owner'], open: true }]), []);
   assert.deepEqual(ev([{ number: 5, queued: false, state: done(2, { waiting: 'needs-owner' }), labels: null, open: null }]), [], 'no live labels: the ship state says needs-owner');
   assert.deepEqual(ev([{ number: 5, queued: false, state: done(2, { waiting: 'needs-owner' }), labels: [], open: true }]), ['question'], 'live labels win: needs-owner was removed');
@@ -95,6 +104,15 @@ test('decide: at most 2 blocks per turn, each reason once; a new turn starts ove
   assert.equal(decide({ reasons: [r('c')], counter: c2, stopHookActive: true }).reason, null, 'cap without turn ids');
   assert.equal(decide({ reasons: [r('a')], counter: c2, stopHookActive: false }).reason, 'tug guard: reason a');
   assert.equal(decide({ reasons: [r('a'), r('b')], counter: null }).reason, 'tug guard: reason a Also: reason b', 'one line');
+  // A turn id that changes on every continuation must not reset the cap: stop_hook_active means the same turn.
+  let c4 = null;
+  let blocks = 0;
+  for (const [i, id] of ['a', 'b', 'c'].entries()) {
+    const d = decide({ reasons: [r(`x${i}`)], counter: c4, turnKey: id, stopHookActive: i > 0 });
+    c4 = d.counter;
+    if (d.reason) blocks++;
+  }
+  assert.equal(blocks, 2, 'ids a, b, c with stop_hook_active: at most 2 blocks');
   // A finished run's result blocks once per session, not at the start of every later turn.
   const once = { key: 'pr-5-exit-4-t', once: true, text: 'failed' };
   const c3 = decide({ reasons: [once], counter: null, turnKey: 'p1' }).counter;
@@ -165,10 +183,10 @@ test('the Stop hook fails open and stays out of the way', async () => {
   assert.deepEqual((await hook({ hook_event_name: 'SubagentStop', session_id: 's', cwd: root, last_assistant_message: 'Which one?' })).out, [], 'only Stop');
   assert.deepEqual((await hook({ tug_probe: true })).out, ['{"tug_probe":"ok"}'], 'doctor\'s probe');
   assert.deepEqual(runGuard({ payload: { hook_event_name: 'Stop', cwd: root, last_assistant_message: 'Fine.' }, env: {} }), { reason: null });
-  // No session id anywhere: a question blocks the first stop only, never a hook continuation (no endless loop).
-  const noId = { hook_event_name: 'Stop', cwd: root, last_assistant_message: 'Which one?' };
-  assert.match(JSON.parse((await hook({ ...noId, stop_hook_active: false })).out[0]).reason, /asked the user a question/);
-  assert.deepEqual((await hook({ ...noId, stop_hook_active: true })).out, []);
+  // No session id anywhere: no tracked PRs, so a question is ordinary conversation.
+  const noId = { hook_event_name: 'Stop', cwd: root, last_assistant_message: 'Which file did you mean?' };
+  assert.deepEqual((await hook({ ...noId, stop_hook_active: false })).out, []);
+  assert.deepEqual((await hook({ ...noId, session_id: 'fresh-session' })).out, [], 'a session with no PRs: no block');
 });
 
 test('live labels are looked up only when the message asks a question', async () => {
@@ -183,4 +201,21 @@ test('live labels are looked up only when the message asks a question', async ()
   assert.deepEqual(asked, []);
   assert.deepEqual((await hook({ hook_event_name: 'Stop', session_id: 'sess-2', cwd: root, last_assistant_message: 'Drop it?' }, { prInfo })).out, [], 'the PR has needs-owner: the owners were told');
   assert.deepEqual(asked, [8]);
+});
+
+test('an unfollowed PR blocks once per session, and not at all when GitHub says it is closed or merged', async () => {
+  const { root } = tugRepo();
+  recordSessionPr(root, 'sess-u', { number: 6, queued: true });
+  writeJson(shipStatePath(root, 6), running({ pid: 99 }));
+  const base = { hook_event_name: 'Stop', session_id: 'sess-u', cwd: root, last_assistant_message: 'Done.' };
+  assert.match(JSON.parse((await hook({ ...base, prompt_id: 'p1' })).out[0]).reason, /PR #6 was queued but no tug ship/);
+  assert.deepEqual((await hook({ ...base, prompt_id: 'p2' })).out, [], 'already said this session');
+  recordSessionPr(root, 'sess-m', { number: 6, queued: true });
+  const asked = [];
+  const merged = await hook({ ...base, session_id: 'sess-m', prompt_id: 'p1' }, { prInfo: n => (asked.push(n), { labels: [], open: false }) });
+  assert.deepEqual(merged.out, []);
+  assert.deepEqual(asked, [6], 'looked up the unfollowed PR');
+  recordSessionPr(root, 'sess-f', { number: 6, queued: true });
+  const failing = await hook({ ...base, session_id: 'sess-f', prompt_id: 'p1' }, { prInfo: () => { throw new Error('gh down'); } });
+  assert.match(JSON.parse(failing.out[0]).reason, /PR #6 was queued/, 'lookup failed: the stored state decides');
 });
