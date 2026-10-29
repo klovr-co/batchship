@@ -43,6 +43,15 @@ test('in a temp repo: flags the flipped and the mixed files only', () => {
   assert.match(result.message, /perl -pi/);
 });
 
+test('in a temp repo: a rename that flips endings is caught', () => {
+  const dir = tempRepo({ 'old.txt': 'one\r\ntwo\r\nthree\r\nfour\r\n' });
+  repos.push(dir);
+  const base = testGit(dir, ['rev-parse', 'HEAD']).trim();
+  testGit(dir, ['mv', 'old.txt', 'new.txt']);
+  const sha = commit(dir, { 'new.txt': 'one\ntwo\nthree\nfour\n' });
+  assert.deepEqual(lineEndingChanges(dir, base, sha), [{ file: 'new.txt', before: 'crlf', after: 'lf' }]);
+});
+
 test('in a temp repo: a content change that keeps the style passes', () => {
   const dir = tempRepo({ 'a.txt': 'a\r\n', 'b.txt': 'b\n' });
   repos.push(dir);

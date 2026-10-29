@@ -41,6 +41,9 @@ test('throws on what it cannot read', () => {
   assert.throws(() => parseYaml('a: |\n  text\n'), /block scalars/);
   assert.throws(() => parseYaml('a: 1\na: 2\n'), /duplicate key/);
   assert.throws(() => parseYaml('a:\n\tb: 1\n'), /tabs/);
+  assert.throws(() => parseYaml('a:\n  - - x\n'), /nested sequences/);
+  assert.deepEqual(parseYaml('--- # doc\na: 1\n'), { a: 1 });
+  assert.throws(() => parseYaml('a: 1\n---\nb: 2\n'), /multiple documents/);
 });
 
 test('yamlScalar reads back as the same value', () => {

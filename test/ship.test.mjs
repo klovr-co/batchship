@@ -157,3 +157,39 @@ test('an already merged PR: skips the queue, waits for the deploy', async () => 
   assert.equal(out.code, EXIT.ok, out.line);
   assert.deepEqual(w.calls, []);
 });
+
+test('Mergify never answers: re-posts twice, then exit 5 saying so (not a 4-hour wait)', async () => {
+  const w = new World();
+  w.checks.clear();
+  const client = { ...w.client(), comment: (_, body) => w.comments.push({ t: w.t, body }), mergifyCheck: () => null };
+  const out = await ship({ ...w.opts(), client });
+  assert.equal(out.code, EXIT.timeout);
+  assert.match(out.line, /Mergify is not answering/);
+  assert.equal(comments(w).length, 3);
+  assert.ok(w.t - Date.parse('2026-10-29T08:00:00Z') < 15 * 60_000);
+});
+
+test('a GitHub blip while waiting is retried; a lasting failure exits 1 with a next step', async () => {
+  const w = new World({ deploys: {} });
+  const inner = w.client();
+  let fails = 2;
+  const client = { ...inner, pr: n => { if (w.t > Date.parse('2026-10-29T08:05:00Z') && fails-- > 0) throw new Error('HTTP 502'); return inner.pr(n); } };
+  const ok = await ship({ ...w.opts({ config: { ...CONFIG, deployWorkflows: [] } }), client });
+  assert.equal(ok.code, EXIT.ok, ok.line);
+
+  const w2 = new World();
+  const inner2 = w2.client();
+  const broken = { ...inner2, pr: n => { if (w2.t > Date.parse('2026-10-29T08:05:00Z')) throw new Error('HTTP 401: bad credentials'); return inner2.pr(n); } };
+  const out = await ship({ ...w2.opts(), client: broken });
+  assert.equal(out.code, EXIT.error);
+  assert.match(out.line, /stopped: HTTP 401/);
+  assert.match(out.next, /gh auth status/);
+});
+
+test('a second stale answer after a re-post is also ignored', async () => {
+  const w = new World({ ignoreComments: 1, deploys: {} });
+  w.queueDelayMs = 5 * 60_000; // Mergify is slow to answer
+  w.checks.set(w.pr.headRefOid, { ...w.check('completed', 'Dequeued — checks failed'), completedAt: '2026-10-29T07:00:00Z' });
+  const out = await ship(w.opts({ config: { ...CONFIG, deployWorkflows: [] } }));
+  assert.equal(out.code, EXIT.ok, out.line);
+});

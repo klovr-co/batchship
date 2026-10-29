@@ -42,7 +42,8 @@ queue_rules:
     batch_size:
       min: 1
       max: 8
-    # Wait up to 30 minutes for more PRs, so fixes that land close together share one CI run.
+    # Up to 8 PRs per batch run. batch_max_wait_time applies while fewer than batch_size.min PRs are queued, so with
+    # min 1 a batch starts at once; raise min to make PRs wait (up to 30 min) for company in one CI run.
     batch_max_wait_time: 30 min
     allow_inplace_checks: false
     # One automatic new run of a red batch before splitting it (a lost runner or a flaky test).

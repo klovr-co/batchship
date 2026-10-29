@@ -16,6 +16,7 @@ test('detects the hook manager', () => {
   assert.equal(detectHookManager(memReader({ '.husky/pre-commit': 'x' })).manager, 'husky');
   assert.equal(detectHookManager(memReader({ 'package.json': '{"simple-git-hooks":{"pre-commit":"x"}}' })).manager, 'simple-git-hooks');
   assert.equal(detectHookManager(memReader({ 'package.json': '{"pre-commit":["lint"]}' })).manager, 'npm-pre-push');
+  assert.equal(detectHookManager(memReader({ 'package.json': '{"husky":{"hooks":{"pre-commit":"lint"}}}' })).manager, 'husky4');
   assert.equal(detectHookManager(memReader({ '.pre-commit-config.yaml': 'repos: []\n' })).manager, 'pre-commit');
   const aldrent = detectHookManager(memReader({ 'lefthook.yml': LEFTHOOK_WITH_PRE_PUSH }));
   assert.deepEqual([aldrent.hasPrePush, aldrent.wired], [true, false]);
@@ -50,6 +51,9 @@ test('setup never sets core.hooksPath under a hook manager, and unsets .githooks
   assert.deepEqual(hookPlan('lefthook', '.githooks').args, ['config', '--unset', 'core.hooksPath']);
   assert.equal(hookPlan('lefthook', null).action, 'none');
   assert.equal(hookPlan('husky', '.husky/_').action, 'none');
+  const lfs = hookPlan('githooks', null, ['post-checkout', 'pre-push']);
+  assert.equal(lfs.action, 'none', 'never bypasses hooks already in .git/hooks (git-lfs)');
+  assert.match(lfs.message, /pre-push/);
 });
 
 const repos = [];
