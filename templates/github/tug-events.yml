@@ -1,0 +1,125 @@
+# Managed by tug {{version}} from .agents/config.yml: `tug init` rewrites this file. Change the config, not this file.
+# GitHub tells people what happened, so nobody has to ask "status?" or "is it live?":
+#   - a PR labelled needs-owner is assigned to `owners` with "Needs your decision: <first line of the PR body>";
+#   - a PR labelled hold gets "On hold. Say ship to release it.";
+#   - each deploy workflow run on {{shipBranch}} comments on its PR: deployed (or every deploy job skipped), or failed;
+#   - the CI workflow failing on {{shipBranch}} opens (or updates) one issue "Live branch is red", assigned to `owners`.
+# Safety: the scripts read titles, bodies and branch names from the event payload and only send them back through the
+# API. Nothing untrusted is put into a shell command or a `${{ }}` expression. pull_request_target runs this file as it
+# is on the default branch (a PR cannot change it) and checks out no code. Only the built-in GITHUB_TOKEN is used.
+name: tug events
+
+on:
+  pull_request_target:
+    types: [labeled]
+{{workflowRun}}
+permissions: {}
+
+jobs:
+  label:
+    if: github.event_name == 'pull_request_target' && (github.event.label.name == 'needs-owner' || github.event.label.name == 'hold')
+    runs-on: {{runner}}
+    timeout-minutes: 2
+    permissions:
+      pull-requests: write
+    steps:
+      - uses: actions/github-script@{{githubScript}}
+        env:
+          TUG_OWNERS: {{owners}}
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            const label = context.payload.label.name;
+            const { owner, repo } = context.repo;
+            const owners = JSON.parse(process.env.TUG_OWNERS || '[]');
+            const comment = body => github.rest.issues.createComment({ owner, repo, issue_number: pr.number, body });
+            if (label === 'needs-owner') {
+              if (owners.length) await github.rest.issues.addAssignees({ owner, repo, issue_number: pr.number, assignees: owners });
+              const first = String(pr.body || '').split(/\r?\n/).map(l => l.trim()).find(Boolean) || String(pr.title || '');
+              // "@" + zero-width space: the bot repeating the body must not notify the people or teams it names.
+              const decision = first.replace(/^needs owner:\s*/i, '').slice(0, 500).replace(/@(?=[\w-])/g, '@\u200b');
+              await comment(`Needs your decision: ${decision}`);
+            } else if (label === 'hold') {
+              await comment('On hold. Say ship to release it.');
+            }
+
+  deploy:
+    if: {{deployIf}}
+    runs-on: {{runner}}
+    timeout-minutes: 2
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/github-script@{{githubScript}}
+        env:
+          TUG_SHIP_BRANCH: {{shipBranchValue}}
+          TUG_LIVE_URL: {{liveUrl}}
+          TUG_MANY: {{manyDeploys}}
+        with:
+          script: |
+            {{deployJobsSkipped}}
+            const run = context.payload.workflow_run;
+            const { owner, repo } = context.repo;
+            if (run.head_branch !== process.env.TUG_SHIP_BRANCH || /^pull_request/.test(run.event)) return core.info('not a run on the ship branch');
+            const sha = run.head_sha;
+            const short = sha.slice(0, 7);
+            const which = process.env.TUG_MANY === 'true' ? ` (${run.name})` : '';
+            let body;
+            if (run.conclusion === 'success') {
+              const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, { owner, repo, run_id: run.id, per_page: 100 });
+              if (deployJobsSkipped(jobs.map(j => ({ name: j.name, conclusion: j.conclusion })))) {
+                body = `Not deployed: every deploy job was skipped for ${short}${which}; the live site still runs the previous deploy. ${run.html_url}`;
+              } else body = `Deployed ✓ ${short} → ${process.env.TUG_LIVE_URL || '(no liveUrl in .agents/config.yml)'}${which}`;
+            } else if (['failure', 'timed_out', 'startup_failure', 'action_required'].includes(run.conclusion)) {
+              body = `Deploy failed: ${run.html_url}${which}`;
+            } else return core.info(`conclusion ${run.conclusion}: nothing to report (a later run deploys it)`);
+            const prs = (await github.rest.repos.listPullRequestsAssociatedWithCommit({ owner, repo, commit_sha: sha })).data;
+            const pr = prs.find(p => p.merge_commit_sha === sha) || prs.find(p => p.merged_at && p.base?.ref === process.env.TUG_SHIP_BRANCH);
+            if (!pr) return core.info(`no PR for ${sha}`);
+            await github.rest.issues.createComment({ owner, repo, issue_number: pr.number, body });
+
+  live-red:
+    if: {{liveIf}}
+    runs-on: {{runner}}
+    timeout-minutes: 2
+    concurrency: tug-live-red
+    permissions:
+      actions: read
+      issues: write
+    steps:
+      - uses: actions/github-script@{{githubScript}}
+        env:
+          TUG_SHIP_BRANCH: {{shipBranchValue}}
+          TUG_OWNERS: {{owners}}
+        with:
+          script: |
+            const run = context.payload.workflow_run;
+            const { owner, repo } = context.repo;
+            const branch = process.env.TUG_SHIP_BRANCH;
+            if (run.head_branch !== branch || /^pull_request/.test(run.event)) return core.info('not a run on the ship branch');
+            const owners = JSON.parse(process.env.TUG_OWNERS || '[]');
+            // Runs can finish out of order: only the newest finished run on the branch speaks.
+            const latest = (await github.rest.actions.listWorkflowRuns({ owner, repo, workflow_id: run.workflow_id, branch, status: 'completed', per_page: 1, exclude_pull_requests: true })).data.workflow_runs?.[0];
+            if (latest && latest.id !== run.id && latest.run_number > run.run_number) return core.info(`run ${latest.id} is newer: it decides`);
+            const title = 'Live branch is red';
+            if (!['success', 'failure', 'timed_out', 'startup_failure'].includes(run.conclusion)) return core.info(`conclusion ${run.conclusion}: nothing to report`);
+            // Every Issues call in one try: a repo with Issues turned off gets a warning, not a red run.
+            try {
+              const issues = await github.paginate(github.rest.issues.listForRepo, { owner, repo, state: 'open', creator: 'github-actions[bot]', per_page: 100 });
+              const open = issues.find(i => !i.pull_request && i.title === title);
+              if (run.conclusion === 'success') {
+                if (!open) return;
+                await github.rest.issues.createComment({ owner, repo, issue_number: open.number, body: `Green again at ${run.head_sha.slice(0, 7)}: ${run.html_url}` });
+                await github.rest.issues.update({ owner, repo, issue_number: open.number, state: 'closed' });
+                return;
+              }
+              const body = `${run.name} failed on ${branch} at ${run.head_sha.slice(0, 7)}: ${run.html_url}`;
+              let number = open?.number;
+              if (number) await github.rest.issues.createComment({ owner, repo, issue_number: number, body });
+              else number = (await github.rest.issues.create({ owner, repo, title, body })).data.number;
+              if (owners.length) await github.rest.issues.addAssignees({ owner, repo, issue_number: number, assignees: owners });
+            } catch (err) {
+              core.warning(`could not update the "${title}" issue (are Issues turned off?): ${err.message}`);
+            }

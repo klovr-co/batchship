@@ -1,6 +1,6 @@
 {
   "name": "tug",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "One agent delivery flow for every repo: Mergify merge queue, pre-push gate, and `tug ship` (queue, re-queue after pushes, wait for merge and deploy). Skills: adopt, ship.",
   "author": { "name": "klovr" },
   "license": "MIT"

@@ -17,7 +17,11 @@ test('a bare repo: config, AGENTS.md, gate, .githooks hook, .mergify.yml, lock; 
   assert.deepEqual(plan.labels, LABELS.map(l => l.name).filter(n => n !== 'queue'));
   assert.equal(plan.defaultBranch, null);
   assert.ok(plan.notes.some(n => /gate|mergify\/merge-queue/.test(n)));
-  assert.ok(Object.keys(files).every(p => p.startsWith('.agents/') || p.startsWith('.githooks/') || ['AGENTS.md', '.mergify.yml'].includes(p)), 'kit files stay under .agents/ and .githooks/');
+  assert.ok(Object.keys(files).every(p => p.startsWith('.agents/') || p.startsWith('.githooks/') || ['AGENTS.md', '.mergify.yml', '.gitignore'].includes(p)), 'kit files stay under .agents/ and .githooks/');
+  assert.equal(files['.gitignore'].content, '.agents/state/\n');
+  assert.deepEqual(plan.ciFiles.map(f => f.path), ['.github/workflows/tug-events.yml'], 'the events workflow is its own change');
+  assert.ok(!files['.github/workflows/tug-events.yml']);
+  assert.ok(plan.notes.some(n => /owners is empty/.test(n)));
 });
 
 test('staging ship target: default branch moves to staging; existing AGENTS.md is kept outside the markers', () => {
@@ -54,4 +58,24 @@ test('a second run over its own output changes nothing', () => {
   assert.match(tree['CLAUDE.md'], /@AGENTS\.md/);
   const second = planInit({ reader: memReader(tree), defaultBranch: 'main', existingLabels: LABELS.map(l => l.name) });
   assert.deepEqual(second.files.map(f => f.path), []);
+});
+
+test('the events workflow: rendered from the config, kept when it is the repo\'s own, a .gitignore line added once', () => {
+  const tree = { '.gitignore': 'node_modules\r\n', '.github/workflows/deploy.yml': 'name: Deploy\n', '.agents/config.yml': 'deployWorkflows: [deploy.yml]\nowners: [octocat]\n' };
+  const plan = planInit({ reader: memReader(tree), defaultBranch: 'main' });
+  assert.equal(byPath(plan)['.gitignore'].content, 'node_modules\r\n.agents/state/\r\n');
+  assert.match(plan.ciFiles[0].content, /- "Deploy"/);
+  assert.ok(!plan.notes.some(n => /owners is empty/.test(n)));
+  const own = planInit({ reader: memReader({ ...tree, '.github/workflows/tug-events.yml': 'name: mine\n' }), defaultBranch: 'main' });
+  assert.deepEqual(own.ciFiles, []);
+  assert.ok(own.skipped.some(s => s.path === '.github/workflows/tug-events.yml'));
+  const done = planInit({ reader: memReader({ ...tree, '.gitignore': '/.agents/state/\n', '.github/workflows/tug-events.yml': plan.ciFiles[0].content }), defaultBranch: 'main' });
+  assert.ok(!byPath(done)['.gitignore']);
+  assert.deepEqual(done.ciFiles, []);
+});
+
+test('owners must be GitHub logins', () => {
+  assert.deepEqual(parseConfig('owners: ["@octocat", a-b]\n').owners, ['octocat', 'a-b']);
+  assert.deepEqual(parseConfig(null).owners, []);
+  for (const bad of ['owners: octocat\n', 'owners: ["-x"]\n', 'owners: ["a--b"]\n', 'owners: ["$(id)"]\n', 'owners: [1]\n']) assert.throws(() => parseConfig(bad), /owners must/, bad);
 });

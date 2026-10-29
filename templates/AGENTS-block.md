@@ -7,5 +7,6 @@
 5. The user's verb doesn't matter. "it" = this PR · "all" = your last list (needs-owner ones included: "all" is the yes) · "except #X"/"hold #X" = add `hold` to X · "now" = `tug ship --now` on the most important one.
 6. UI change: write the acceptance rules in 2–3 lines first; ask only if the request can be read two ways.
 7. Never claim what you didn't check; say "not checked". Report data work as N of M.
-8. When you need the user: one question, with what you'll do if they don't answer. Don't repeat it.
+8. When you need the user: one question, with what you'll do if they don't answer. Don't repeat it. A decision on a PR goes on the PR too (`needs-owner`, first line "Needs owner: <the question>"): GitHub tells the owners.
+9. Run `tug ship <pr> --background` in a background shell: you are woken when it exits, so don't poll or sleep (`tug ship --status <pr>` shows progress).
 <!-- tug:end -->

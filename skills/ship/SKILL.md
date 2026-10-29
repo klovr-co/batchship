@@ -14,7 +14,7 @@ The verb never matters ("ship", "merge", "go", "make it live", "pr and merge" al
 
 | They said | You do |
 |---|---|
-| "ship it", "ship", "this", no scope | `tug ship <the PR you are discussing>` |
+| "ship it", "ship", "this", no scope | `tug ship <the PR you are discussing> --background` |
 | "all", "everything", "them", "these" | `tug ship <n>` for every PR in **your last list to them**, never every open PR. Needs-owner PRs in that list are included: "all" is their yes, so first `gh pr edit <n> --remove-label needs-owner --add-label approved`. |
 | "except #X", "not #X", "hold #X" | `gh pr edit X --add-label hold`, then ship the rest |
 | "now", "asap", "urgent", "hotfix", "don't wait" | `tug ship --now <the one that matters most>`; the rest with plain `tug ship`. Tell them the rest follow in the next batch. |
@@ -23,7 +23,10 @@ The verb never matters ("ship", "merge", "go", "make it live", "pr and merge" al
 
 Don't ask before shipping. Ask only when the scope is ambiguous (two lists, no list); then ask once and say what you will do if they don't answer.
 
-Several PRs: start each `tug ship` in its own background shell, close together, so Mergify tests them in one batch.
+Run `tug ship <n> --background` in a background shell (your harness's background command, e.g. Claude Code's
+`run_in_background`): it prints one line when it exits and you are woken then. Don't poll and don't sleep;
+`tug ship --status <n>` prints the last state without waiting. Several PRs: start each in its own background shell,
+close together, so Mergify tests them in one batch.
 Without being asked, use `--now` only when the ship branch is red, your PR fixes it, and no other open PR has `hotfix`.
 
 ## Before `tug ship`
@@ -47,5 +50,6 @@ Without being asked, use `--now` only when the ship branch is red, your PR fixes
 On exits 2, 3 and 5 tug leaves nothing armed: it removes `queue`/`hotfix` and posts `@mergifyio dequeue` if the PR was queued; `next:` says what it undid. A deploy run that skipped every deploy job reports `deploy steps skipped (path-scoped)`: nothing was deployed, so say so.
 
 CI runs on Mergify's batch draft, not on the PR, so `gh pr checks <n>` shows nothing: trust `tug ship`'s line.
-In T3 Code you may instead call `watch_pull_request` and end your turn; never end on "I'll check back".
+Never end on "I'll check back": the turn-end guard (`tug guard`, installed by `tug setup`) stops a turn that leaves a
+queued PR without a running `tug ship`, or that asks the user a question no `needs-owner` PR carries.
 Report "not checked" for anything you did not see yourself (for example a deploy that printed `not run (not checked)`).
