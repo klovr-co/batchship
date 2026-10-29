@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // tug: one delivery flow for every repo. See README.md.
-import { realpathSync } from 'node:fs';
+import { existsSync, readdirSync, realpathSync } from 'node:fs';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadConfig } from '../lib/config.mjs';
 import { doctorChecks, formatDoctor } from '../lib/doctor.mjs';
@@ -23,6 +24,9 @@ const USAGE = `tug ${VERSION}: one delivery flow for every repo
 
 ship exit codes: 0 merged and deployed · 2 refused (hold, needs-owner, closed, wrong base, hotfix taken)
                  3 out of the queue (fix and push) · 4 deploy failed · 5 timed out · 1 error`;
+
+/** A PR number as typed: digits only, no sign, no leading zero, no '#'. */
+export const isPrNumber = text => /^[1-9][0-9]*$/.test(String(text));
 
 export async function main(argv = process.argv.slice(2)) {
   const [command, ...rest] = argv;
@@ -48,15 +52,16 @@ export async function main(argv = process.argv.slice(2)) {
   }
 
   if (command === 'ship') {
-    const number = Number(String(args[0] || '').replace(/^#/, ''));
-    if (!Number.isInteger(number) || number <= 0 || args.length !== 1) {
-      console.error('usage: tug ship <pr> [--now]');
+    if (args.length !== 1 || !isPrNumber(args[0])) {
+      console.error('usage: tug ship <pr> [--now]   (<pr> is the PR number, e.g. 1333)');
       return 1;
     }
     const root = git(process.cwd(), ['rev-parse', '--show-toplevel']).trim();
+    const number = Number(args[0]);
     const config = loadConfig(root);
     const client = createClient(repoInfo(root).slug);
-    const out = await ship({ client, number, now: flags.has('--now'), config, log: text => console.error(`  ${text}`) });
+    const workflowFiles = existsSync(join(root, '.github/workflows')) ? readdirSync(join(root, '.github/workflows')) : [];
+    const out = await ship({ client, number, now: flags.has('--now'), config, workflowFiles, log: text => console.error(`  ${text}`) });
     console.log(out.line);
     if (out.next) console.log(`next: ${out.next}`);
     return out.code;

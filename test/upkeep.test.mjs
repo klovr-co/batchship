@@ -26,14 +26,17 @@ test('decideWorktree keeps the same safety rules as repo-upkeep.sh', () => {
   assert.equal(decideWorktree({ ...base, branch: 'done', containedIn: () => false }).reason, 'unpushed');
   assert.equal(decideWorktree({ ...base, branch: 'done', idleDays: 1 }).reason, 'recently used');
   assert.equal(decideWorktree({ ...base, branch: 'done', dirty: true }).reason, 'uncommitted changes');
+  assert.equal(decideWorktree({ ...base, branch: 'done', locked: true }).reason, 'locked');
+  assert.equal(decideWorktree({ ...base, branch: 'open', locked: true }).reason, 'PR open');
+  assert.match(decideWorktree({ ...base, branch: 'done', ignored: ['.env'] }).reason, /has ignored files \(\.env\)/);
 });
 
 test('parseWorktrees reads porcelain output', () => {
-  const text = 'worktree /r\nHEAD 1\nbranch refs/heads/main\n\nworktree /r/w1\nHEAD 2\ndetached\n\nworktree /r/w 2\nHEAD 3\nbranch refs/heads/fix/a\n\n';
+  const text = 'worktree /r\nHEAD 1\nbranch refs/heads/main\n\nworktree /r/w1\nHEAD 2\ndetached\n\nworktree /r/w 2\nHEAD 3\nbranch refs/heads/fix/a\nlocked on a USB disk\n\n';
   assert.deepEqual(parseWorktrees(text), [
-    { path: '/r', branch: 'main', detached: false },
-    { path: '/r/w1', branch: null, detached: true },
-    { path: '/r/w 2', branch: 'fix/a', detached: false },
+    { path: '/r', branch: 'main', detached: false, locked: false },
+    { path: '/r/w1', branch: null, detached: true, locked: false },
+    { path: '/r/w 2', branch: 'fix/a', detached: false, locked: true },
   ]);
 });
 

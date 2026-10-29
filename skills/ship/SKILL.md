@@ -15,10 +15,10 @@ The verb never matters ("ship", "merge", "go", "make it live", "pr and merge" al
 | They said | You do |
 |---|---|
 | "ship it", "ship", "this", no scope | `tug ship <the PR you are discussing>` |
-| "all", "everything", "them", "these" | `tug ship <n>` for every PR in **your last list to them**, never every open PR. Needs-owner PRs in that list are included: "all" is their yes, so remove `needs-owner` first (`gh pr edit <n> --remove-label needs-owner`). |
+| "all", "everything", "them", "these" | `tug ship <n>` for every PR in **your last list to them**, never every open PR. Needs-owner PRs in that list are included: "all" is their yes, so first `gh pr edit <n> --remove-label needs-owner --add-label approved`. |
 | "except #X", "not #X", "hold #X" | `gh pr edit X --add-label hold`, then ship the rest |
 | "now", "asap", "urgent", "hotfix", "don't wait" | `tug ship --now <the one that matters most>`; the rest with plain `tug ship`. Tell them the rest follow in the next batch. |
-| "yes" / "go" answering your Needs-owner question | remove `needs-owner`, then `tug ship <n>` |
+| "yes" / "go" answering your Needs-owner question | `gh pr edit <n> --remove-label needs-owner --add-label approved`, then `tug ship <n>` |
 | "wait", "not yet", "hold" | `gh pr edit <n> --add-label hold`; do not ship |
 
 Don't ask before shipping. Ask only when the scope is ambiguous (two lists, no list); then ask once and say what you will do if they don't answer.
@@ -30,7 +30,7 @@ Without being asked, use `--now` only when the ship branch is red, your PR fixes
 - The pre-push gate passed on your last push (never `--no-verify`).
 - Another agent reviewed the diff (`git diff origin/<ship branch>...HEAD`); blockers and majors are fixed.
 - UI changes: screenshots on the PR (`gh pr comment <n> --attach <image>`).
-- Changes matching `needsOwner` in the config: the PR has `needs-owner` and a first line `Needs owner: <the decision>` until the user says yes.
+- Changes matching `needsOwner` in the config: the PR has `needs-owner` and a first line `Needs owner: <the decision>` until the user says yes. `tug ship` reads the PR's files itself, before every queue command and after every push, and refuses a match unless the PR has `approved`.
 
 ## Reading the result
 
@@ -39,10 +39,12 @@ Without being asked, use `--now` only when the ship branch is red, your PR fixes
 | Exit | Meaning | You |
 |---|---|---|
 | 0 | merged, deploy done (or none configured) | open `liveUrl`, check the changed screens, report once with a screenshot |
-| 2 | refused: `hold`, `needs-owner`, closed, wrong base, or another PR has `hotfix` | follow `next:`; for needs-owner, ask the one question |
+| 2 | refused: `hold`, `needs-owner`, a needsOwner file without `approved`, closed, wrong base, or another PR has `hotfix` | follow `next:`; for needs-owner, ask the one question |
 | 3 | out of the queue: red batch, conflict, or unmet conditions | fix, push (the gate runs), `tug ship <n>` again |
 | 4 | merged but the deploy failed | open the run; fix forward with a new PR and ship it |
 | 5 | timed out | open the PR's "Mergify Merge Queue" check; report once if you cannot move it |
+
+On exits 2, 3 and 5 tug leaves nothing armed: it removes `queue`/`hotfix` and posts `@mergifyio dequeue` if the PR was queued; `next:` says what it undid. A deploy run that skipped every deploy job reports `deploy steps skipped (path-scoped)`: nothing was deployed, so say so.
 
 CI runs on Mergify's batch draft, not on the PR, so `gh pr checks <n>` shows nothing: trust `tug ship`'s line.
 In T3 Code you may instead call `watch_pull_request` and end your turn; never end on "I'll check back".

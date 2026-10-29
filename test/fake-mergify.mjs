@@ -2,7 +2,7 @@
 // the queue label alone queues nothing; a comment that is exactly "@mergifyio queue" does; a push dequeues the PR,
 // and a command posted before Mergify has registered that push is cancelled.
 export class World {
-  constructor({ pr = {}, registerDelayMs = 15_000, queueDelayMs = 10_000, mergeAfterMs = 20 * 60_000, ignoreComments = 0, deploys = {}, mergeSha = 'm'.repeat(40), otherHotfix = [] } = {}) {
+  constructor({ pr = {}, registerDelayMs = 15_000, queueDelayMs = 10_000, mergeAfterMs = 20 * 60_000, ignoreComments = 0, deploys = {}, mergeSha = 'm'.repeat(40), otherHotfix = [], files = ['src/app.ts'], hotfixAt = {}, otherQueued = [], jobs = null } = {}) {
     this.t = Date.parse('2026-10-29T08:00:00Z');
     this.pr = { number: 7, state: 'OPEN', isDraft: false, labels: [], headRefOid: 'a'.repeat(40), baseRefName: 'main', mergeCommit: null, url: 'https://github.com/o/r/pull/7', ...pr };
     this.checks = new Map([[this.pr.headRefOid, this.check('completed', 'Merge queue is ready')]]);
@@ -16,6 +16,10 @@ export class World {
     this.deploys = deploys; // { 'deploy.yml': { conclusion, afterMs } }
     this.mergeSha = mergeSha;
     this.otherHotfix = otherHotfix;
+    this.files = files;
+    this.hotfixAt = hotfixAt; // { [n]: ms } when another PR got hotfix (default: a minute ago)
+    this.otherQueued = otherQueued;
+    this.jobs = jobs; // the deploy run's jobs (default: one deploy job that ran)
     this.unregisteredPush = null; // the time of a push Mergify has not registered yet
     this.runs = new Map();
   }
@@ -50,7 +54,11 @@ export class World {
     const w = this;
     const log = (name, ...args) => w.calls.push({ t: w.t, name, args });
     return {
-      pr: () => ({ ...w.pr, labels: [...w.pr.labels] }),
+      pr: n => (n === undefined || n === w.pr.number ? { ...w.pr, labels: [...w.pr.labels] } : { number: n, state: 'OPEN', labels: ['hotfix'], headRefOid: `other${n}`, baseRefName: 'main' }),
+      removeLabels: (_, labels) => { log('removeLabels', labels); w.pr.labels = w.pr.labels.filter(l => !labels.includes(l)); },
+      prFiles: () => [...w.files],
+      labelAddedAt: n => w.hotfixAt[n] ?? w.t - 60_000,
+      runJobs: () => w.jobs ?? [{ name: 'deploy', conclusion: 'success' }],
       ready: () => { log('ready'); w.pr.isDraft = false; },
       addLabels: (_, labels) => { log('addLabels', labels); w.pr.labels.push(...labels); },
       openPrsWithLabel: label => (label === 'hotfix' ? [...w.otherHotfix, ...(w.pr.labels.includes('hotfix') ? [w.pr.number] : [])] : []),
@@ -80,7 +88,7 @@ export class World {
           });
         });
       },
-      mergifyCheck: sha => w.checks.get(sha) ?? null,
+      mergifyCheck: sha => (String(sha).startsWith('other') ? (w.otherQueued.includes(Number(String(sha).slice(5))) ? w.check('in_progress', 'Running merge queue checks') : w.check('completed', 'Merge queue is ready')) : w.checks.get(sha) ?? null),
       runs: (wf, sha) => (w.runs.has(`${wf}@${sha}`) ? [w.runs.get(`${wf}@${sha}`)] : []),
       branchRuns: () => [],
       contains: () => false,
