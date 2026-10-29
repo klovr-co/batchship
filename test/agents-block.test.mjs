@@ -12,7 +12,8 @@ test('the block has the markers, the version and the ship branch', () => {
   assert.ok(block.endsWith('<!-- tug:end -->'));
   assert.match(block, /from a fresh origin\/staging\. Never push to it/);
   assert.match(block, /`tug ship <pr>`/);
-  assert.equal(block.split('\n').filter(l => /^\d\. /.test(l)).length, 8);
+  assert.equal(block.split('\n').filter(l => /^\d\. /.test(l)).length, 9);
+  assert.match(block, /`tug ship <pr> --background` in a background shell: you are woken when it exits/);
   assert.equal(agentsBlockVersion(block), VERSION);
 });
 

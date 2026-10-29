@@ -36,3 +36,7 @@ mergeMethod: {{mergeMethod}}
 
 # The check the merge queue waits for on its batch draft: the name of the CI gate job (templates/ci/gate.snippet.yml).
 ciCheck: {{ciCheck}}
+
+# GitHub logins of the people who decide (needs-owner) and hear about a red live branch: the tug events workflow
+# assigns them. Example: [octocat]
+owners:{{owners}}
