@@ -1,0 +1,58 @@
+# Managed by tug {{version}} from .agents/config.yml: `tug init` rewrites this file. Change the config, not this file.
+# Mergify reads this file from the default branch, so `tug init` makes {{base}} the default branch.
+#
+# A ready PR into {{base}} with the "queue" label AND a comment that is exactly `@mergifyio queue` waits here: the
+# label alone does not queue it. `tug ship <pr>` does both. Mergify tests the queued PRs together on a draft PR from
+# mergify/merge-queue/* (one CI run; an ordinary PR runs no CI of its own) and merges each PR that passed. A red batch
+# is split until the PR that broke it is found; that PR leaves the queue with a comment, the rest merge.
+# Any push to a queued PR cancels its place; `tug ship` queues it again once Mergify has registered the push.
+# "hotfix" goes to the front, alone, and interrupts the running batch. "hold" and "needs-owner" keep a PR out of both queues.
+queue_rules:
+  # Listed first, so a PR labelled hotfix matches it before "default". No waiting for company: tested at once, alone.
+  - name: hotfix
+    queue_conditions:
+      - base = {{base}}
+      - -draft
+      - label = hotfix
+      - -label = hold
+      - -label = needs-owner
+    merge_conditions:
+      - {{mergeCondition}}
+    checks_timeout: 60 min
+    batch_size:
+      min: 1
+      max: 1
+    batch_max_wait_time: 0 s
+    # Always test on a draft PR from mergify/merge-queue/*: CI runs no job on the PR itself.
+    allow_inplace_checks: false
+    max_checks_retries: 1
+    merge_method: {{mergeMethod}}
+
+  - name: default
+    # No CI condition here: a PR is queued without a CI run of its own; the batch run is the only gate.
+    queue_conditions:
+      - base = {{base}}
+      - -draft
+      - label = queue
+      - -label = hold
+      - -label = needs-owner
+    merge_conditions:
+      - {{mergeCondition}}
+    checks_timeout: 60 min
+    batch_size:
+      min: 1
+      max: 8
+    # Up to 8 PRs per batch run. batch_max_wait_time applies while fewer than batch_size.min PRs are queued, so with
+    # min 1 a batch starts at once; raise min to make PRs wait (up to 30 min) for company in one CI run.
+    batch_max_wait_time: 30 min
+    allow_inplace_checks: false
+    # One automatic new run of a red batch before splitting it (a lost runner or a flaky test).
+    max_checks_retries: 1
+    merge_method: {{mergeMethod}}
+
+priority_rules:
+  - name: hotfix
+    conditions:
+      - label = hotfix
+    priority: high
+    allow_checks_interruption: true

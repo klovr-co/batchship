@@ -1,11 +1,11 @@
 {
-  "name": "batchship",
+  "name": "tug",
   "owner": { "name": "klovr" },
   "plugins": [
     {
-      "name": "batchship",
+      "name": "tug",
       "source": "./",
-      "description": "Batch many fixes into one CI run. Local check, PR guard, /ship-batch skill."
+      "description": "One agent delivery flow for every repo: merge queue, pre-push gate, tug ship. Skills: adopt, ship."
     }
   ]
 }

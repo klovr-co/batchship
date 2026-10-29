@@ -1,6 +1,6 @@
 {
-  "name": "batchship",
-  "version": "0.5.1",
-  "description": "Pay for CI once per batch of fixes, not once per fix. /ship-batch skill for batch branches, a local check and a PR guard.",
+  "name": "tug",
+  "version": "1.0.0",
+  "description": "One agent delivery flow for every repo: Mergify merge queue, pre-push gate, and `tug ship` (queue, re-queue after pushes, wait for merge and deploy). Skills: adopt, ship.",
   "license": "MIT"
 }
