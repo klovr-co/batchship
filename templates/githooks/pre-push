@@ -1,0 +1,6 @@
+#!/bin/sh
+# Managed by tug: the pre-push gate (.agents/tug/pre-push.mjs). Enabled per machine by `tug setup`
+# (git config core.hooksPath .githooks). Never skip it with `git push --no-verify` (AGENTS.md).
+[ -f .agents/tug/pre-push.mjs ] || exit 0
+command -v node >/dev/null 2>&1 || { echo "pre-push: node is not on PATH; cannot run .agents/tug/pre-push.mjs" >&2; exit 1; }
+exec node .agents/tug/pre-push.mjs --hook "$@"

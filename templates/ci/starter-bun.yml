@@ -1,0 +1,54 @@
+# tug starter CI (bun). Copy to .github/workflows/ci.yml and keep only the scripts your package.json has.
+# An ordinary PR runs no job: the Mergify merge queue tests queued PRs together on a draft PR from
+# mergify/merge-queue/*, and that run is the only gate. "CI gate" is the check .mergify.yml waits for
+# (.agents/config.yml ciCheck). Pin actions to commit SHAs once it works.
+name: CI
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main] # the ship branch (branches[shipTarget] in .agents/config.yml)
+    types: [opened, synchronize, reopened, ready_for_review]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Lint + typecheck + test
+    if: >-
+      github.event_name != 'pull_request' ||
+      (startsWith(github.head_ref, 'mergify/merge-queue/') && github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version # or package.json (packageManager)
+      - run: bun install --frozen-lockfile
+      - run: bun run lint
+      - run: bun run typecheck
+      - run: bun run test
+
+  gate:
+    name: CI gate
+    if: >-
+      always() && (github.event_name != 'pull_request' ||
+      (startsWith(github.head_ref, 'mergify/merge-queue/') && github.event.pull_request.head.repo.full_name == github.repository))
+    needs: [check]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require every needed job to pass
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "results: $RESULTS"
+          if [[ " $RESULTS " == *" failure "* || " $RESULTS " == *" cancelled "* ]]; then
+            exit 1
+          fi

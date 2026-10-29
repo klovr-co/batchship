@@ -1,0 +1,69 @@
+# tug CI gate: fit these pieces into your existing workflow (the adopt skill does this, as its own PR).
+# Pattern: an ordinary PR runs no CI. Only Mergify's batch drafts (branches mergify/merge-queue/*) and manual runs do,
+# and one gate job is the check the queue waits for (.agents/config.yml `ciCheck` = its `name:`).
+
+# 1. Triggers: keep pull_request for the ship branch (Mergify's drafts are PRs into it) and allow manual runs.
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main] # the ship branch
+    types: [opened, synchronize, reopened, ready_for_review]
+
+jobs:
+  # 2. Add this `if:` to every job that has no `needs:` (the first jobs). Later jobs are skipped with them.
+  #    The repo check stops a fork's PR from posing as a queue draft.
+  first-job:
+    if: >-
+      github.event_name != 'pull_request' ||
+      (startsWith(github.head_ref, 'mergify/merge-queue/') && github.event.pull_request.head.repo.full_name == github.repository)
+
+  # 3. The gate. Skipped jobs pass; a failed or cancelled one fails it. List every other job under needs.
+  ci-gate:
+    name: CI gate
+    if: >-
+      always() && (github.event_name != 'pull_request' ||
+      (startsWith(github.head_ref, 'mergify/merge-queue/') && github.event.pull_request.head.repo.full_name == github.repository))
+    needs: [first-job] # every other job
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require every needed job to pass
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "results: $RESULTS"
+          if [[ " $RESULTS " == *" failure "* || " $RESULTS " == *" cancelled "* ]]; then
+            exit 1
+          fi
+
+  # 4. Optional, when CI picks checks by changed paths: the `full-ci` label on any PR in a batch runs everything.
+  #    The labels sit on the queued PRs, not on the draft: read the PR numbers from the draft's title and body.
+  #    Self-hosted runners may have no gh CLI, so this reads the API with python3 -I (isolated mode: no local imports).
+  scope:
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+    steps:
+      - name: Run everything if a queued PR has full-ci
+        id: full
+        env:
+          QUEUE_DRAFT: ${{ startsWith(github.head_ref, 'mergify/merge-queue/') }}
+          DRAFT_NUMBER: ${{ github.event.pull_request.number }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          run_all=false
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then run_all=true; fi
+          if [[ "$QUEUE_DRAFT" == "true" ]]; then
+            gh_api() { python3 -I -c 'import json,os,sys,urllib.request as u; r=u.Request("https://api.github.com/"+sys.argv[1],headers={"Authorization":"Bearer "+os.environ["GH_TOKEN"],"Accept":"application/vnd.github+json"}); print(json.dumps(json.load(u.urlopen(r,timeout=30))))' "$1"; }
+            gh_api "repos/$GITHUB_REPOSITORY/pulls/$DRAFT_NUMBER" | python3 -I -c 'import json,sys; d=json.load(sys.stdin); print(d["title"]); print(d.get("body") or "")' > "$RUNNER_TEMP/draft.txt"
+            queued=$( { head -n 1 "$RUNNER_TEMP/draft.txt" | grep -oE '#[0-9]+'; grep -oE '^ *- number: [0-9]+' "$RUNNER_TEMP/draft.txt"; } | grep -oE '[0-9]+' | sort -u || true)
+            if [[ -z "$queued" ]]; then echo "Could not read the batch's PR numbers: running everything."; run_all=true; fi
+            for pr in $queued; do
+              # Not piped into grep -q: an API error must fail the step, not read as "no label".
+              labels=$(gh_api "repos/$GITHUB_REPOSITORY/issues/$pr/labels" | python3 -I -c 'import json,sys; print("\n".join(l["name"] for l in json.load(sys.stdin)))')
+              if grep -qx 'full-ci' <<<"$labels"; then echo "#$pr has full-ci: running everything."; run_all=true; fi
+            done
+          fi
+          echo "run_all=$run_all" >> "$GITHUB_OUTPUT"
