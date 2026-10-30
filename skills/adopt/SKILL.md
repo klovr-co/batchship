@@ -34,10 +34,10 @@ The pre-push gate already checks line endings and `generated` outputs. `checkCom
 
 ## 3. Hook wiring
 
-- No hook manager: `tug init` wrote `.githooks/pre-push`; each machine runs `tug setup`.
-- lefthook with its own `pre-push:` section: add a job `run: node .agents/tug/pre-push.mjs --hook` with `use_stdin: true`. If the existing job already runs the same checks, point `checkCommand` at that script and drop the duplicate job, so a push runs them once. Never set `core.hooksPath` in a lefthook or husky repo: it turns their hooks off.
-- husky / simple-git-hooks / pre-commit: add the line `tug init` printed.
-- A repo's own `.githooks/pre-push`: move its command into `checkCommand`, then `tug init --force` replaces the hook with tug's.
+- No hook manager: `tug init` wrote `.githooks/pre-push` (a repo's own one is kept as `.githooks/pre-push.repo` and runs first); each machine runs `git config core.hooksPath .githooks` (or `tug setup`).
+- lefthook: `tug init` merges a `tug` job into the existing `pre-push:` section. lefthook gives git's stdin to one `use_stdin` job only, so when the repo's job already takes it, tug's runs without `--hook` (it checks HEAD). Better: point `checkCommand` at the repo's script and drop its job, so one job (tug's, with `--hook` and `use_stdin: true`) runs everything once. Never set `core.hooksPath` in a lefthook or husky repo: it turns their hooks off.
+- husky: `tug init` appends the gate to `.husky/pre-push` (unless it exits early). simple-git-hooks / pre-commit: add the line `tug init` printed.
+- A repo's own `.githooks/pre-push` that only runs what `checkCommand` runs: `tug init` drops it; else move its command into `checkCommand` and delete `.githooks/pre-push.repo`.
 
 ## 4. The repo's own .mergify.yml
 
@@ -45,6 +45,6 @@ The pre-push gate already checks line endings and `generated` outputs. `checkCom
 
 ## 5. AGENTS.md
 
-`tug init` added the tug block and left the rest. Old sections that repeat or contradict it ("Merging: the merge queue", "Ship target") can go in the same PR as the block, with the owner's yes; keep repo-specific facts (deploy workflows, proof rules) by moving them into `.agents/config.yml` or a short line under the block.
+`tug init` added the tug block and removed the hand-written sections it supersedes (`supersededSections` in the config: "Ship target", "Merging", "Merging: the merge queue", "Done means checked"), listing them in its PR. Other old sections that repeat or contradict it can go too, with the owner's yes; keep repo-specific facts (deploy workflows, proof rules) by moving them into `.agents/config.yml` or a short line under the block.
 
 Finish with `tug doctor`: every line `ok`, or a sentence in the PR on why not.

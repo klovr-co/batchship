@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { chmodSync } from 'node:fs';
 import { join } from 'node:path';
 import { after, test } from 'node:test';
-import { detectHookManager, GATE_COMMAND, hookStatus, wireHook } from '../lib/hooks.mjs';
+import { detectHookManager, GATE_COMMAND, githooksPrePush, hookStatus, wireHook } from '../lib/hooks.mjs';
 import { hookPlan } from '../lib/setup.mjs';
 import { template } from '../lib/render.mjs';
 import { parseYaml } from '../lib/yaml.mjs';
@@ -24,10 +24,11 @@ test('detects the hook manager', () => {
 
 test('wiring: .githooks only without a manager; lefthook gets a pre-push section appended; existing ones are left', () => {
   const tpl = template('githooks/pre-push');
-  assert.deepEqual(wireHook(detectHookManager(memReader({})), memReader({}), { template: tpl }), { path: '.githooks/pre-push', content: tpl, mode: 0o755 });
+  assert.deepEqual(wireHook(detectHookManager(memReader({})), memReader({}), { template: tpl }), { path: '.githooks/pre-push', content: githooksPrePush(tpl), mode: 0o755 });
   const own = memReader({ '.githooks/pre-push': '#!/bin/sh\nnode scripts/check.mjs\n' });
-  assert.ok(wireHook(detectHookManager(own), own, { template: tpl }).manual, 'never overwrites a repo\'s own .githooks/pre-push');
-  assert.equal(wireHook(detectHookManager(own), own, { template: tpl, force: true }).path, '.githooks/pre-push');
+  const kept = wireHook(detectHookManager(own), own, { template: tpl });
+  assert.deepEqual(kept.extra.map(e => [e.path, e.content]), [['.githooks/pre-push.repo', '#!/bin/sh\nnode scripts/check.mjs\n']], 'the repo\'s own hook is kept and run first');
+  assert.equal(wireHook(detectHookManager(own), own, { template: tpl, force: true }).extra, undefined);
 
   const lh = memReader({ 'lefthook.yml': 'pre-commit:\n  commands:\n    fmt:\n      run: fmt\n' });
   const wired = wireHook(detectHookManager(lh), lh, { template: tpl });
@@ -37,8 +38,9 @@ test('wiring: .githooks only without a manager; lefthook gets a pre-push section
   assert.deepEqual(doc['pre-commit'], { commands: { fmt: { run: 'fmt' } } });
 
   const al = memReader({ 'lefthook.yml': LEFTHOOK_WITH_PRE_PUSH });
-  const manual = wireHook(detectHookManager(al), al, { template: tpl });
-  assert.match(manual.manual, /own pre-push section/);
+  const merged = wireHook(detectHookManager(al), al, { template: tpl, parse: parseYaml });
+  assert.equal(merged.merged, true);
+  assert.equal(parseYaml(merged.content)['pre-push'].jobs.length, 2);
   assert.equal(wireHook(detectHookManager(memReader({ '.husky/pre-commit': 'x' })), memReader({ '.husky/pre-commit': 'x' }), { template: tpl }).path, '.husky/pre-push');
   const done = memReader({ 'lefthook.yml': `pre-push:\n  commands:\n    tug:\n      run: ${GATE_COMMAND}\n` });
   assert.deepEqual(wireHook(detectHookManager(done), done, { template: tpl }), { already: true });

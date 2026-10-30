@@ -1,11 +1,12 @@
 #!/bin/sh
-# Managed by tug: the pre-push gate (.agents/tug/pre-push.mjs). Enabled per machine by `tug setup`
-# (git config core.hooksPath .githooks). Never skip it with `git push --no-verify` (AGENTS.md).
-[ -f .agents/tug/pre-push.mjs ] || exit 0
-command -v node >/dev/null 2>&1 || { echo "pre-push: node is not on PATH; cannot run .agents/tug/pre-push.mjs" >&2; exit 1; }
+# Managed by tug: the pre-push gate (.agents/tug/pre-push.mjs). Enabled per machine by
+# `git config core.hooksPath .githooks` (tug setup does it). Never skip it with `git push --no-verify` (AGENTS.md).
 # git hands the pushed refs on stdin once; keep them for each command below.
 input=$(cat)
-printf '%s\n' "$input" | node .agents/tug/pre-push.mjs --hook "$@" || exit 1
+{{repoHook}}if [ -f .agents/tug/pre-push.mjs ]; then
+  command -v node >/dev/null 2>&1 || { echo "pre-push: node is not on PATH; cannot run .agents/tug/pre-push.mjs" >&2; exit 1; }
+  printf '%s\n' "$input" | node .agents/tug/pre-push.mjs --hook "$@" || exit 1
+fi
 # core.hooksPath replaces .git/hooks, so run git-lfs's pre-push here when the repo uses LFS.
 if grep -qs 'filter=lfs' .gitattributes && command -v git-lfs >/dev/null 2>&1; then
   printf '%s\n' "$input" | git lfs pre-push "$@" || exit 1
