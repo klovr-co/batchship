@@ -31,7 +31,7 @@ function tugRepoFiles() {
     ...runtime,
     '.agents/tug/NOTES.md': 'the repo\'s own note, not tug\'s\n',
     '.agents/tug.lock': `${JSON.stringify(lock, null, 2)}\n`,
-    '.agents/config.yml': 'shipTarget: staging\nbranches:\n  production: main\n  staging: staging\nowners:\n  - alice\n',
+    '.agents/config.yml': '# Settings every agent and every tug command reads (https://github.com/klovr-co/tug).\n# Extra comment lines kept at the top of .github/workflows/tug-events.yml\nshipTarget: staging\nbranches:\n  production: main\n  staging: staging\nowners:\n  - alice\n',
     'AGENTS.md': '# Rules\n\nKeep this.\n\n<!-- tug:start v1.1.0 -->\n## Shipping (managed by tug; settings in .agents/config.yml)\n1. old rule\n<!-- tug:end -->\n\n## After the block\nAlso keep this.\n',
     'lefthook.yml': 'pre-commit:\n  jobs:\n    - run: biome format\n\npre-push:\n  commands:\n    lint:\n      run: eslint .\n    # tug pre-push gate (.agents/tug/pre-push.mjs): line endings, generated files, checkCommand.\n    tug:\n      run: node .agents/tug/pre-push.mjs --hook\n      use_stdin: true\n',
     '.gitignore': 'node_modules/\n.agents/*\n!.agents/config.yml\n!.agents/tug/\n!.agents/tug.lock\n.agents/state/\n',
@@ -76,6 +76,10 @@ test('migration: init moves every tug artefact in the same PRs and keeps the rep
   // .gitignore exceptions follow.
   assert.equal(out['.gitignore'].content, 'node_modules/\n.agents/*\n!.agents/config.yml\n!.agents/shiplane/\n!.agents/shiplane.lock\n.agents/state/\n');
 
+  // .agents/config.yml: its comments follow, in the init PR; no value changes.
+  assert.equal(out['.agents/config.yml'].content.split('\n').slice(0, 2).join('\n'), '# Settings every agent and every tug command reads (https://github.com/klovr-co/tug).\n# Extra comment lines kept at the top of .github/workflows/tug-events.yml'.replace(/tug/g, 'shiplane'));
+  assert.ok(out['.agents/config.yml'].content.includes('shipTarget: staging\nbranches:\n  production: main\n  staging: staging\nowners:\n  - alice\n'));
+
   // Project hooks: tug's guard command replaced in place, nothing else touched.
   const claude = JSON.parse(out['.claude/settings.json'].content);
   assert.deepEqual(claude.permissions, { allow: ['Bash(ls)'] });
@@ -95,6 +99,7 @@ test('migration: init moves every tug artefact in the same PRs and keeps the rep
   assert.match(events, /^name: shiplane events$/m);
   assert.match(events, /^# Dry run: labelled a test PR needs-owner\.$/m);
   assert.match(events, /^# Revert: gh workflow disable shiplane-events\.yml -R acme\/app \(stops it at once\); git revert <this commit> removes it\.$/m);
+  assert.equal(ci['.agents/config.yml'], undefined, 'config.yml is changed in the init PR only');
   assert.equal(ci['scripts/ci-budget.baseline.json'].content, files['scripts/ci-budget.baseline.json'].replace('"tug-events.yml"', '"shiplane-events.yml"'));
   assert.ok(!plan.files.some(f => f.path.startsWith('.github/')), '.github/ changes stay in the events PR');
   assert.ok(plan.notes.some(n => /Moves this repo from tug to shiplane/.test(n)));
@@ -265,4 +270,15 @@ test('doctor: tug leftovers in a temp repo and a temp HOME are reported, and non
   const cleanHome = assertInTmp(mkdtempSync(join(realpathSync(tmpdir()), 'shiplane-home-')));
   dirs.push(cleanHome);
   assert.deepEqual(tugLeftovers({ root: clean, env: { HOME: cleanHome }, harnesses: harnesses({ HOME: cleanHome }) }), []);
+});
+
+test('doctor\'s probe is answered by shiplane\'s guard under either name, and bin/tug.mjs forwards to shiplane', async () => {
+  const { spawnSync } = await import('node:child_process');
+  const cwd = assertInTmp(mkdtempSync(join(realpathSync(tmpdir()), 'shiplane-probe-')));
+  dirs.push(cwd);
+  for (const bin of ['shiplane.mjs', 'tug.mjs']) {
+    const r = spawnSync(process.execPath, [new URL(`../bin/${bin}`, import.meta.url).pathname, 'guard', '--hook', 'claude'], { cwd, input: JSON.stringify({ hook_event_name: 'Stop', session_id: 'p', cwd, tug_probe: true }), encoding: 'utf8' });
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stdout, /"shiplane_probe":"ok"/, bin);
+  }
 });
