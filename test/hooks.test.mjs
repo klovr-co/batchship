@@ -34,7 +34,7 @@ test('wiring: .githooks only without a manager; lefthook gets a pre-push section
   const wired = wireHook(detectHookManager(lh), lh, { template: tpl });
   assert.equal(wired.path, 'lefthook.yml');
   const doc = parseYaml(wired.content);
-  assert.deepEqual(doc['pre-push'], { commands: { tug: { run: GATE_COMMAND, use_stdin: true } } });
+  assert.deepEqual(doc['pre-push'], { commands: { shiplane: { run: GATE_COMMAND, use_stdin: true } } });
   assert.deepEqual(doc['pre-commit'], { commands: { fmt: { run: 'fmt' } } });
 
   const al = memReader({ 'lefthook.yml': LEFTHOOK_WITH_PRE_PUSH });
@@ -42,7 +42,7 @@ test('wiring: .githooks only without a manager; lefthook gets a pre-push section
   assert.equal(merged.merged, true);
   assert.equal(parseYaml(merged.content)['pre-push'].jobs.length, 2);
   assert.equal(wireHook(detectHookManager(memReader({ '.husky/pre-commit': 'x' })), memReader({ '.husky/pre-commit': 'x' }), { template: tpl }).path, '.husky/pre-push');
-  const done = memReader({ 'lefthook.yml': `pre-push:\n  commands:\n    tug:\n      run: ${GATE_COMMAND}\n` });
+  const done = memReader({ 'lefthook.yml': `pre-push:\n  commands:\n    shiplane:\n      run: ${GATE_COMMAND}\n` });
   assert.deepEqual(wireHook(detectHookManager(done), done, { template: tpl }), { already: true });
 });
 
@@ -74,7 +74,7 @@ test('hookStatus in a temp repo: off until core.hooksPath points at .githooks', 
 });
 
 test('hookStatus in a temp repo: lefthook with core.hooksPath=.githooks is reported as off', () => {
-  const dir = tempRepo({ 'lefthook.yml': `pre-push:\n  commands:\n    tug:\n      run: ${GATE_COMMAND}\n` });
+  const dir = tempRepo({ 'lefthook.yml': `pre-push:\n  commands:\n    shiplane:\n      run: ${GATE_COMMAND}\n` });
   repos.push(dir);
   writeFiles(dir, { '.git/hooks/pre-push': '#!/bin/sh\n# lefthook\nlefthook run pre-push "$@"\n' });
   chmodSync(join(dir, '.git/hooks/pre-push'), 0o755);

@@ -1,4 +1,4 @@
-# tug starter CI (pnpm). Copy to .github/workflows/ci.yml and keep only the scripts your package.json has.
+# shiplane starter CI (pnpm). Copy to .github/workflows/ci.yml and keep only the scripts your package.json has.
 # An ordinary PR runs no job: the Mergify merge queue tests queued PRs together on a draft PR from
 # mergify/merge-queue/*, and that run is the only gate. "CI gate" is the check .mergify.yml waits for
 # (.agents/config.yml ciCheck). Pin actions to commit SHAs once it works.

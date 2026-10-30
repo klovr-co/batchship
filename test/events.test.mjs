@@ -64,7 +64,7 @@ test('workflow names come from each file\'s name: line, else its path', () => {
 
 test('renders the triggers, jobs and permissions from the config', () => {
   const yaml = renderEvents(config(), WORKFLOWS);
-  assert.match(yaml, /^# Managed by tug/);
+  assert.match(yaml, /^# Managed by shiplane/);
   assert.match(yaml, /pull_request_target:\n {4}types: \[labeled\]/);
   assert.match(yaml, /workflow_run:\n {4}workflows:\n {6}- "Deploy web"\n {6}- "\.github\/workflows\/deploy-api\.yml"\n {6}- "CI"\n {4}types: \[completed\]/);
   assert.match(yaml, /^permissions: \{\}$/m);
@@ -78,11 +78,11 @@ test('renders the triggers, jobs and permissions from the config', () => {
   }
   assert.ok(!/uses: (?!actions\/github-script@[0-9a-f]{40})/.test(yaml), 'no other action');
   assert.ok(!/secrets\./.test(yaml), 'GITHUB_TOKEN only');
-  assert.match(yaml, /TUG_OWNERS: "\[\\"octocat\\",\\"hubot\\"\]"/);
+  assert.match(yaml, /SHIPLANE_OWNERS: "\[\\"octocat\\",\\"hubot\\"\]"/);
   assert.match(yaml, /if: "github\.event_name == 'workflow_run' && contains\(fromJSON\('\[\\"Deploy web\\",\\".github\/workflows\/deploy-api.yml\\"\]'\), github\.event\.workflow_run\.name\)"/);
   assert.match(yaml, /if: "github\.event_name == 'workflow_run' && github\.event\.workflow_run\.name == 'CI'"/);
-  assert.match(scripts(yaml).deploy, /^function deployJobsSkipped/, 'the skipped-jobs logic is tug ship\'s own');
-  assert.equal(EVENTS_PATH, '.github/workflows/tug-events.yml');
+  assert.match(scripts(yaml).deploy, /^function deployJobsSkipped/, 'the skipped-jobs logic is shiplane ship\'s own');
+  assert.equal(EVENTS_PATH, '.github/workflows/shiplane-events.yml');
 });
 
 test('no deploy or CI workflow: no workflow_run trigger, and the jobs never match', () => {
@@ -103,7 +103,7 @@ test('injection: values with $(…), backticks and quotes stay data; ${{ is refu
   }
   assert.ok(!/^\s*run:/m.test(yaml), 'no run: step at all');
   // The values appear only quoted (env values, the trigger list, expression literals).
-  for (const line of yaml.split('\n').filter(l => l.includes('$(curl'))) assert.match(line, /^\s+(TUG_LIVE_URL: "|- "|if: ")/, line);
+  for (const line of yaml.split('\n').filter(l => l.includes('$(curl'))) assert.match(line, /^\s+(SHIPLANE_LIVE_URL: "|- "|if: ")/, line);
   assert.throws(() => renderEvents(parseConfig('liveUrl: "https://x/${{ secrets.TOKEN }}"\n'), []), /would evaluate/);
   assert.throws(() => renderEvents(parseConfig('deployWorkflows: [d.yml]\n'), [{ path: '.github/workflows/d.yml', text: 'name: "x ${{ github.token }}"\n' }]), /would evaluate/);
 });
@@ -111,14 +111,14 @@ test('injection: values with $(…), backticks and quotes stay data; ${{ is refu
 test('label script: needs-owner assigns the owners and quotes the first body line; a hostile title stays inert', async () => {
   const yaml = renderEvents(config(), WORKFLOWS);
   const src = scripts(yaml).label;
-  const env = { TUG_OWNERS: '["octocat","hubot"]' };
-  const hostile = '$(touch /tmp/tug-pwned) `rm -rf /` ${{ secrets.X }}';
+  const env = { SHIPLANE_OWNERS: '["octocat","hubot"]' };
+  const hostile = '$(touch /tmp/shiplane-pwned) `rm -rf /` ${{ secrets.X }}';
   const calls = await runScript(src, { env, payload: { label: { name: 'needs-owner' }, pull_request: { number: 9, title: hostile, body: `\n\nNeeds owner: drop the ${hostile} table?\nmore` } } });
   assert.deepEqual(calls[0], { name: 'addAssignees', args: { owner: 'o', repo: 'r', issue_number: 9, assignees: ['octocat', 'hubot'] } });
   assert.equal(calls[1].args.body, `Needs your decision: drop the ${hostile} table?`);
   const mention = await runScript(src, { env, payload: { label: { name: 'needs-owner' }, pull_request: { number: 9, body: 'Needs owner: ask @org/team and @alice' } } });
   assert.equal(mention.at(-1).args.body, 'Needs your decision: ask @\u200borg/team and @\u200balice', 'repeating the body notifies nobody');
-  const noBody = await runScript(src, { env: { TUG_OWNERS: '[]' }, payload: { label: { name: 'needs-owner' }, pull_request: { number: 9, title: hostile, body: null } } });
+  const noBody = await runScript(src, { env: { SHIPLANE_OWNERS: '[]' }, payload: { label: { name: 'needs-owner' }, pull_request: { number: 9, title: hostile, body: null } } });
   assert.deepEqual(noBody.map(c => c.name), ['createComment'], 'no owners: nobody assigned');
   assert.equal(noBody[0].args.body, `Needs your decision: ${hostile}`);
   const hold = await runScript(src, { env, payload: { label: { name: 'hold' }, pull_request: { number: 9 } } });
@@ -127,7 +127,7 @@ test('label script: needs-owner assigns the owners and quotes the first body lin
 
 test('deploy script: deployed, every deploy job skipped, failed, and runs off the ship branch', async () => {
   const src = scripts(renderEvents(config(), WORKFLOWS)).deploy;
-  const env = { TUG_SHIP_BRANCH: 'main', TUG_LIVE_URL: 'https://app.example.com', TUG_MANY: 'false' };
+  const env = { SHIPLANE_SHIP_BRANCH: 'main', SHIPLANE_LIVE_URL: 'https://app.example.com', SHIPLANE_MANY: 'false' };
   const sha = 'abcdef1234567890abcdef1234567890abcdef12';
   const run = (extra, jobs) =>
     runScript(src, {
@@ -150,7 +150,7 @@ test('deploy script: deployed, every deploy job skipped, failed, and runs off th
 
 test('live-red script: opens one issue and assigns the owners, then updates it, then closes it when green', async () => {
   const src = scripts(renderEvents(config(), WORKFLOWS))['live-red'];
-  const env = { TUG_SHIP_BRANCH: 'main', TUG_OWNERS: '["octocat"]' };
+  const env = { SHIPLANE_SHIP_BRANCH: 'main', SHIPLANE_OWNERS: '["octocat"]' };
   const wr = extra => ({ workflow_run: { id: 9, run_number: 30, workflow_id: 3, name: 'CI', head_branch: 'main', event: 'push', head_sha: 'f'.repeat(40), conclusion: 'failure', html_url: 'https://gh/run/9', ...extra } });
   const first = await runScript(src, { env, payload: wr(), api: { listForRepo: () => [{ number: 1, title: 'Live branch is red', pull_request: {} }], create: () => ({ data: { number: 12 } }) } });
   assert.deepEqual(first.find(c => c.name === 'create').args, { owner: 'o', repo: 'r', title: 'Live branch is red', body: 'CI failed on main at fffffff: https://gh/run/9' });

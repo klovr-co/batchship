@@ -10,17 +10,17 @@ const byPath = plan => Object.fromEntries(plan.files.map(f => [f.path, f]));
 test('a bare repo: config, AGENTS.md, gate, .githooks hook, .mergify.yml, lock; labels; no default branch change', () => {
   const plan = planInit({ reader: memReader({ 'README.md': 'x', '.github/workflows/deploy-web.yml': 'on: push\n' }), defaultBranch: 'main', existingLabels: ['queue'] });
   const files = byPath(plan);
-  for (const p of ['.agents/config.yml', 'AGENTS.md', '.githooks/pre-push', '.mergify.yml', '.agents/tug.lock', ...RUNTIME_FILES.map(f => `.agents/tug/${f}`)]) assert.ok(files[p], p);
+  for (const p of ['.agents/config.yml', 'AGENTS.md', '.githooks/pre-push', '.mergify.yml', '.agents/shiplane.lock', ...RUNTIME_FILES.map(f => `.agents/shiplane/${f}`)]) assert.ok(files[p], p);
   assert.equal(files['.githooks/pre-push'].mode, 0o755);
   assert.deepEqual(parseConfig(files['.agents/config.yml'].content).deployWorkflows, ['deploy-web.yml']);
-  assert.equal(JSON.parse(files['.agents/tug.lock'].content).version, VERSION);
+  assert.equal(JSON.parse(files['.agents/shiplane.lock'].content).version, VERSION);
   assert.deepEqual(plan.labels, LABELS.map(l => l.name).filter(n => n !== 'queue'));
   assert.equal(plan.defaultBranch, null);
   assert.ok(plan.notes.some(n => /gate|mergify\/merge-queue/.test(n)));
   assert.ok(Object.keys(files).every(p => p.startsWith('.agents/') || p.startsWith('.githooks/') || ['AGENTS.md', '.mergify.yml', '.gitignore', '.claude/settings.json', '.codex/hooks.json'].includes(p)), 'kit files stay under .agents/ and .githooks/ (plus the project-level hooks)');
   assert.equal(files['.gitignore'].content, '.agents/state/\n');
-  assert.deepEqual(plan.ciFiles.map(f => f.path), ['.github/workflows/tug-events.yml'], 'the events workflow is its own change');
-  assert.ok(!files['.github/workflows/tug-events.yml']);
+  assert.deepEqual(plan.ciFiles.map(f => f.path), ['.github/workflows/shiplane-events.yml'], 'the events workflow is its own change');
+  assert.ok(!files['.github/workflows/shiplane-events.yml']);
   assert.ok(plan.notes.some(n => /owners is empty/.test(n)));
 });
 
@@ -37,18 +37,18 @@ test('staging ship target: default branch moves to staging; existing AGENTS.md i
   assert.match(files['AGENTS.md'].content, /origin\/staging/);
   assert.ok(files['.agents/config.yml'].content.startsWith('shipTarget: staging\n'));
   assert.ok(!files['.githooks/pre-push'], 'lefthook: no .githooks');
-  assert.match(files['lefthook.yml'].content, /- name: tug pre-push gate\n      run: node \.agents\/tug\/pre-push\.mjs --hook\n      use_stdin: true/, 'merged into the existing pre-push section');
+  assert.match(files['lefthook.yml'].content, /- name: shiplane pre-push gate\n      run: node \.agents\/shiplane\/pre-push\.mjs --hook\n      use_stdin: true/, 'merged into the existing pre-push section');
   assert.deepEqual(plan.labels, []);
   assert.match(files['.mergify.yml'].content, /base = staging/);
 });
 
-test('a repo\'s own .mergify.yml is kept and its leaks are named; --force replaces it; tug\'s own is updated', () => {
+test('a repo\'s own .mergify.yml is kept and its leaks are named; --force replaces it; shiplane\'s own is updated', () => {
   const own = 'queue_rules:\n  - name: default\n    queue_conditions:\n      - label = queue\n';
   const kept = planInit({ reader: memReader({ '.mergify.yml': own }), defaultBranch: 'main' });
   assert.ok(!byPath(kept)['.mergify.yml']);
   assert.match(kept.skipped.find(s => s.path === '.mergify.yml').why, /default \(add `-label = hold`, `-label = needs-owner`\)/);
   assert.ok(byPath(planInit({ reader: memReader({ '.mergify.yml': own }), defaultBranch: 'main', force: true }))['.mergify.yml']);
-  const ours = planInit({ reader: memReader({ '.mergify.yml': '# Managed by tug 0.9.0\nqueue_rules: []\n' }), defaultBranch: 'main' });
+  const ours = planInit({ reader: memReader({ '.mergify.yml': '# Managed by shiplane 0.9.0\nqueue_rules: []\n' }), defaultBranch: 'main' });
   assert.equal(byPath(ours)['.mergify.yml'].action, 'update');
 });
 
@@ -66,10 +66,10 @@ test('the events workflow: rendered from the config, kept when it is the repo\'s
   assert.equal(byPath(plan)['.gitignore'].content, 'node_modules\r\n.agents/state/\r\n');
   assert.match(plan.ciFiles[0].content, /- "Deploy"/);
   assert.ok(!plan.notes.some(n => /owners is empty/.test(n)));
-  const own = planInit({ reader: memReader({ ...tree, '.github/workflows/tug-events.yml': 'name: mine\n' }), defaultBranch: 'main' });
+  const own = planInit({ reader: memReader({ ...tree, '.github/workflows/shiplane-events.yml': 'name: mine\n' }), defaultBranch: 'main' });
   assert.deepEqual(own.ciFiles, []);
-  assert.ok(own.skipped.some(s => s.path === '.github/workflows/tug-events.yml'));
-  const done = planInit({ reader: memReader({ ...tree, '.gitignore': '/.agents/state/\n', '.github/workflows/tug-events.yml': plan.ciFiles[0].content }), defaultBranch: 'main' });
+  assert.ok(own.skipped.some(s => s.path === '.github/workflows/shiplane-events.yml'));
+  const done = planInit({ reader: memReader({ ...tree, '.gitignore': '/.agents/state/\n', '.github/workflows/shiplane-events.yml': plan.ciFiles[0].content }), defaultBranch: 'main' });
   assert.ok(!byPath(done)['.gitignore']);
   assert.deepEqual(done.ciFiles, []);
 });

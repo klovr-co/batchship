@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { isPrNumber, main } from '../bin/tug.mjs';
+import { isPrNumber, main } from '../bin/shiplane.mjs';
 
 test('PR numbers are parsed strictly', async () => {
   for (const ok of ['1', '7', '1333']) assert.equal(isPrNumber(ok), true, ok);
@@ -14,5 +14,5 @@ test('PR numbers are parsed strictly', async () => {
   } finally {
     console.error = orig;
   }
-  assert.ok(errors.every(e => /usage: tug ship <pr>/.test(e)));
+  assert.ok(errors.every(e => /usage: shiplane ship <pr>/.test(e)));
 });

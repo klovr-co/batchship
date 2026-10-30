@@ -37,7 +37,7 @@ test('base follows shipTarget, merge method follows the config', () => {
     assert.equal(rule.merge_method, 'squash');
     assert.deepEqual(rule.merge_conditions, ['check-success = CI gate']);
   }
-  assert.match(renderMergify(cfg(null)), /^# Managed by tug /);
+  assert.match(renderMergify(cfg(null)), /^# Managed by shiplane /);
 });
 
 test('mergifyLeaks names rules that let hold or needs-owner in', () => {

@@ -1,6 +1,6 @@
 {
-  "name": "tug",
+  "name": "shiplane",
   "version": "1.1.1",
-  "description": "One agent delivery flow for every repo: Mergify merge queue, pre-push gate, and `tug ship` (queue, re-queue after pushes, wait for merge and deploy). Skills: adopt, ship.",
+  "description": "One agent delivery flow for every repo: Mergify merge queue, pre-push gate, and `shiplane ship` (queue, re-queue after pushes, wait for merge and deploy). Skills: adopt, ship.",
   "license": "MIT"
 }

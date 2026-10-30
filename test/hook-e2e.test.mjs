@@ -1,4 +1,4 @@
-// The gate as tug init installs it (.agents/tug/ + .githooks/pre-push), driven by a real `git push` to a bare repo
+// The gate as shiplane init installs it (.agents/shiplane/ + .githooks/pre-push), driven by a real `git push` to a bare repo
 // that lives inside the test's temp dir (no real remote).
 import assert from 'node:assert/strict';
 import { chmodSync, mkdirSync, writeFileSync } from 'node:fs';
@@ -29,7 +29,7 @@ test('git push HEAD:branch runs the installed gate: a line-ending flip is reject
     if (f.mode) chmodSync(path, f.mode);
   }
   testGit(dir, ['config', 'core.hooksPath', '.githooks']);
-  commit(dir, {}, 'add tug');
+  commit(dir, {}, 'add shiplane');
   testGit(dir, ['push', '-q', 'origin', 'HEAD:refs/heads/kit']);
 
   commit(dir, { 'a.txt': 'one\r\ntwo\r\nthree\r\n' }, 'flip');

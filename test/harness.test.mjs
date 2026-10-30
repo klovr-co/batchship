@@ -11,13 +11,13 @@ import { assertInTmp, removeRepo, tempRepo } from './helpers.mjs';
 const dirs = [];
 after(() => dirs.forEach(removeRepo));
 function tempHome({ claude = true, codex = false } = {}) {
-  const home = assertInTmp(mkdtempSync(join(realpathSync(tmpdir()), 'tug-home-')));
+  const home = assertInTmp(mkdtempSync(join(realpathSync(tmpdir()), 'shiplane-home-')));
   dirs.push(home);
   if (claude) mkdirSync(join(home, '.claude'));
   if (codex) mkdirSync(join(home, '.codex'));
   return { HOME: home };
 }
-const CMD = "'/usr/bin/node' '/opt/tug/bin/tug.mjs' guard --hook claude";
+const CMD = "'/usr/bin/node' '/opt/shiplane/bin/shiplane.mjs' guard --hook claude";
 const EXISTING = {
   model: 'opus',
   permissions: { allow: ['Bash(npm test)'] },
@@ -36,14 +36,14 @@ test('mergeGuardHook adds one Stop hook and keeps everything else; idempotent; m
   assert.equal(settings.model, 'opus');
   assert.deepEqual(EXISTING.hooks.Stop.length, 1, 'input not mutated');
   assert.equal(mergeGuardHook(settings, CMD).changed, false);
-  const moved = mergeGuardHook(settings, CMD.replace('/opt/tug', '/new/tug'));
+  const moved = mergeGuardHook(settings, CMD.replace('/opt/shiplane', '/new/shiplane'));
   assert.equal(moved.changed, true);
   assert.equal(moved.settings.hooks.Stop.length, 2);
-  assert.match(moved.settings.hooks.Stop[1].hooks[0].command, /\/new\/tug/);
+  assert.match(moved.settings.hooks.Stop[1].hooks[0].command, /\/new\/shiplane/);
   assert.deepEqual(mergeGuardHook(null, CMD).settings, { hooks: { Stop: [{ hooks: [{ type: 'command', command: CMD, timeout: 30 }] }] } });
   assert.throws(() => mergeGuardHook({ hooks: [] }, CMD), /"hooks" is not an object/);
   assert.throws(() => mergeGuardHook({ hooks: { Stop: {} } }, CMD), /not a list/);
-  assert.ok(isGuardCommand(CMD) && isGuardCommand('tug guard --hook codex') && !isGuardCommand('say done'));
+  assert.ok(isGuardCommand(CMD) && isGuardCommand('shiplane guard --hook codex') && !isGuardCommand('say done'));
 });
 
 test('installGuard into a temp HOME: merges, keeps a backup, reads back; a second run changes nothing', () => {
@@ -75,12 +75,12 @@ test('installGuard leaves a broken or odd file alone', () => {
 test('setup installs for the harnesses it finds (CLAUDE_CONFIG_DIR and CODEX_HOME respected), nowhere else', () => {
   const env = tempHome({ claude: false, codex: true });
   assert.deepEqual(detectHarnesses(env).map(h => h.name), ['codex']);
-  const lines = installGuardHooks({ env, command: name => `tug guard --hook ${name}` });
+  const lines = installGuardHooks({ env, command: name => `shiplane guard --hook ${name}` });
   assert.equal(lines.length, 1);
   assert.match(lines[0].text, /Codex Stop hook installed in .*\.codex\/hooks\.json.*trust/);
-  assert.equal(installedGuard(join(env.HOME, '.codex/hooks.json')), 'tug guard --hook codex');
+  assert.equal(installedGuard(join(env.HOME, '.codex/hooks.json')), 'shiplane guard --hook codex');
   assert.ok(!existsSync(join(env.HOME, '.claude')), 'no Claude Code here: nothing created');
-  const custom = assertInTmp(mkdtempSync(join(realpathSync(tmpdir()), 'tug-cfg-')));
+  const custom = assertInTmp(mkdtempSync(join(realpathSync(tmpdir()), 'shiplane-cfg-')));
   dirs.push(custom);
   assert.equal(harnesses({ HOME: env.HOME, CLAUDE_CONFIG_DIR: custom })[0].path, join(custom, 'settings.json'));
   assert.equal(installGuardHooks({ env: tempHome({ claude: false }), command: () => 'x' })[0].ok, null);
@@ -93,7 +93,7 @@ test('codexHooksDisabled reads [features] hooks = false', () => {
   assert.equal(codexHooksDisabled(''), false);
 });
 
-test('doctor: the installed command really fires (a probe through this tug), or says why not', () => {
+test('doctor: the installed command really fires (a probe through this shiplane), or says why not', () => {
   const env = tempHome({ claude: true, codex: true });
   const repo = tempRepo();
   dirs.push(repo);
@@ -105,7 +105,7 @@ test('doctor: the installed command really fires (a probe through this tug), or 
   assert.equal(checks.length, 2);
   assert.deepEqual([checks[0].name, checks[0].ok], ['guard hook (Claude Code)', true]);
   assert.deepEqual([checks[1].ok, /not installed/.test(checks[1].detail)], [false, true]);
-  installGuard(harnesses(env)[1], { command: "'/nonexistent/node' '/x/tug.mjs' guard --hook codex" });
+  installGuard(harnesses(env)[1], { command: "'/nonexistent/node' '/x/shiplane.mjs' guard --hook codex" });
   const broken = guardHookChecks({ cwd: repo, env })[1];
   assert.equal(broken.ok, false);
   assert.match(broken.detail, /does not run/);
@@ -122,10 +122,10 @@ test('installGuard writes through a symlink, keeps the mode and the first backup
   assert.ok(lstatSync(claude.path).isSymbolicLink(), 'the link is still a link');
   assert.equal(installedGuard(target), CMD);
   assert.equal(statSync(target).mode & 0o777, 0o600);
-  assert.deepEqual(JSON.parse(readFileSync(`${target}.tug-backup`, 'utf8')), EXISTING);
+  assert.deepEqual(JSON.parse(readFileSync(`${target}.shiplane-backup`, 'utf8')), EXISTING);
   installGuard(claude, { command: CMD.replace('/opt/', '/new/') });
-  assert.deepEqual(JSON.parse(readFileSync(`${target}.tug-backup`, 'utf8')), EXISTING, 'the backup is the pre-tug file');
-  const doubled = { hooks: { Stop: [{ hooks: [{ type: 'command', command: CMD }] }, { hooks: [{ type: 'command', command: 'say hi' }, { type: 'command', command: 'tug guard --hook claude' }] }] } };
+  assert.deepEqual(JSON.parse(readFileSync(`${target}.shiplane-backup`, 'utf8')), EXISTING, 'the backup is the pre-shiplane file');
+  const doubled = { hooks: { Stop: [{ hooks: [{ type: 'command', command: CMD }] }, { hooks: [{ type: 'command', command: 'say hi' }, { type: 'command', command: 'shiplane guard --hook claude' }] }] } };
   const { settings } = mergeGuardHook(doubled, CMD);
   assert.deepEqual(settings.hooks.Stop, [{ hooks: [{ type: 'command', command: CMD }] }, { hooks: [{ type: 'command', command: 'say hi' }] }]);
 });
