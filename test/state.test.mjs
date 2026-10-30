@@ -129,7 +129,7 @@ test('one shiplane ship per PR: a second run exits 2 and leaves the first run\'s
   writeFileSync(shipStatePath(dir, 7), JSON.stringify(finished));
   const second = await run();
   assert.equal(second.code, 2);
-  assert.deepEqual(second.out, [`shiplane ship #7: already shipping #7 (pid ${process.pid}) · next: wait for that run (shiplane ship --status 7); you are woken when it exits`]);
+  assert.deepEqual(second.out, [`shiplane ship #7: already shipping #7 (pid ${process.pid}) · next: wait for that run (shiplane 7 --status); you are woken when it exits`]);
   assert.deepEqual(readJson(shipStatePath(dir, 7)), finished, 'the finished result is not overwritten');
   assert.equal(acquireShipLock(dir, 7, { now: o.clock() }).ok, false);
   held.release();

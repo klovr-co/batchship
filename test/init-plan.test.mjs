@@ -150,10 +150,10 @@ test('A.3/A.4 the AGENTS block: the hook line first, the needs-me browser link w
   const block = renderAgentsBlock(config, '9.9.9', { org: 'klovr-co', hook: { manager: 'githooks' } });
   const lines = block.split('\n');
   assert.match(lines[2], /^First: .*run `git config core\.hooksPath \.githooks`\.$/);
-  assert.match(block, /in a browser https:\/\/github\.com\/pulls\?q=is:open\+org:klovr-co\+label:needs-owner,hold/);
-  assert.equal(needsMeUrl(null), 'https://github.com/pulls?q=is:open+org:<org>+label:needs-owner,hold');
+  assert.match(block, /in a browser https:\/\/github\.com\/issues\?q=is:open\+org:klovr-co\+label:needs-owner,hold/);
+  assert.equal(needsMeUrl(null), 'https://github.com/issues?q=is:open+org:<org>+label:needs-owner,hold');
   assert.match(hookLine({ manager: 'lefthook', pm: 'bun' }), /`bunx lefthook install`/);
-  assert.match(block, /`node \.agents\/shiplane\/shiplane\.mjs ship <pr> --background`/);
+  assert.match(block, /`node \.agents\/shiplane\/shiplane\.mjs <pr> --background`/);
   assert.match(block, /never with a PR watch alone \(T3's PR watch ends at merge without waking you\)/);
   const plan = planInit({ reader: memReader({ 'lefthook.yml': 'pre-commit: {}\n', 'bun.lock': '' }), defaultBranch: 'main', org: 'acme' });
   const agents = byPath(plan)['AGENTS.md'].content;
@@ -164,6 +164,13 @@ test('A.3/A.4 the AGENTS block: the hook line first, the needs-me browser link w
 test('the ship skill says the same: vendored command, background wait, never a PR watch alone', async () => {
   const { readFileSync } = await import('node:fs');
   const skill = readFileSync(new URL('../skills/ship/SKILL.md', import.meta.url), 'utf8');
-  assert.match(skill, /node \.agents\/shiplane\/shiplane\.mjs ship/);
-  assert.match(skill, /wait with `ship --background`, never with a PR watch alone \(T3's PR watch ends at merge without waking you\)/i);
+  assert.match(skill, /node \.agents\/shiplane\/shiplane\.mjs <n> --background/);
+  assert.match(skill, /wait with `--background`, never with a PR watch alone \(T3's PR watch ends at merge without waking you\)/i);
+});
+
+test('gh needs-me: open issues and PRs in the org labelled needs-owner or hold', async () => {
+  const { needsMeAlias } = await import('../lib/setup.mjs');
+  assert.deepEqual(needsMeAlias('klovr-co'), ['alias', 'set', '--clobber', 'needs-me', 'search issues --owner klovr-co --state open label:needs-owner,hold --include-prs']);
+  assert.equal(needsMeUrl('klovr-co'), 'https://github.com/issues?q=is:open+org:klovr-co+label:needs-owner,hold');
+  assert.match(renderAgentsBlock(parseConfig(null), '9.9.9', { org: 'klovr-co' }), /What waits for them \(PRs or issues labelled `needs-owner` or `hold`\)/);
 });

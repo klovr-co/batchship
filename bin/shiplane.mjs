@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// shiplane: one delivery flow for every repo. See README.md.
+// shiplane: every agent PR in its own lane, landed in order and tracked to live. See README.md.
 import { realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { doctorChecks, formatDoctor } from '../lib/doctor.mjs';
@@ -8,25 +8,27 @@ import { createClient, repoInfo } from '../lib/gh.mjs';
 import { applyInit } from '../lib/init.mjs';
 import { setup } from '../lib/setup.mjs';
 import { EXIT } from '../lib/ship.mjs';
-import { isPrNumber, runtimeCommand, shipCommand } from '../lib/shiplane.mjs';
+import { isPrNumber, prNumberHint, runtimeCommand, shipCommand, withDefaultCommand } from '../lib/shiplane.mjs';
 import { upkeep } from '../lib/upkeep.mjs';
 import { VERSION } from '../lib/version.mjs';
 
 export { isPrNumber, shipCommand };
 
-const USAGE = `shiplane ${VERSION}: one delivery flow for every repo
+const USAGE = `shiplane ${VERSION}: every agent PR in its own lane, landed in order and tracked to live
 
-  shiplane ship <pr> [--now] [--background]
-                          queue the PR with Mergify, re-queue after pushes, wait for merge and deploy.
-                          --background: progress goes to .agents/state/ship-<pr>.json, one result line at the end
-                          (start it in a background shell: you are woken when it exits)
-  shiplane ship --status <pr>  the last state of shiplane ship <pr> on this machine, without waiting
+  shiplane <pr> [--now] [--background]
+                          ship the PR (the same as \`shiplane ship <pr>\`): queue it with Mergify, re-queue after
+                          pushes, wait for merge and deploy. --background: progress goes to .agents/state/ship-<pr>.json,
+                          one result line at the end (start it in a background shell: you are woken when it exits)
+  shiplane <pr> --status  the last state of shiplane <pr> on this machine, without waiting
   shiplane init [--dry-run] [--force]
                           write the kit into this repo as one PR (with its runtime in .agents/shiplane/, so a clone ships
-                          with node .agents/shiplane/shiplane.mjs ship and needs no shiplane); create labels; set the default branch
-  shiplane setup               per machine: turn on the pre-push gate, gh needs-me alias, register for upkeep
-  shiplane doctor              report what is set up and what is not (changes nothing)
-  shiplane upkeep [--dry-run]  fast-forward root checkouts, remove finished worktrees, then doctor
+                          with node .agents/shiplane/shiplane.mjs <pr> and needs
+                          no shiplane); create labels; set the default branch
+  shiplane setup          per machine: turn on the pre-push gate, gh needs-me alias, register for upkeep
+  shiplane doctor         report what is set up and what is not (changes nothing)
+  shiplane upkeep [--dry-run]
+                          fast-forward root checkouts, remove finished worktrees, then doctor
   shiplane guard [--hook claude|codex]
                           turn-end check: exits 1 with one reason when a queued PR is not live and no shiplane ship
                           follows it, or the last message asks a question no needs-owner PR carries
@@ -35,9 +37,9 @@ ship exit codes: 0 merged and deployed · 2 refused (hold, needs-owner, closed, 
                  3 out of the queue (fix and push) · 4 deploy failed · 5 timed out · 1 error`;
 
 export async function main(argv = process.argv.slice(2)) {
-  const [command, ...rest] = argv;
+  const [command, ...rest] = withDefaultCommand(argv);
   const flags = new Set(rest.filter(a => a.startsWith('--')));
-    const known = { ship: ['--now', '--background', '--status'], init: ['--dry-run', '--force'], setup: [], doctor: [], upkeep: ['--dry-run'], guard: ['--hook'] };
+  const known = { ship: ['--now', '--background', '--status'], init: ['--dry-run', '--force'], setup: [], doctor: [], upkeep: ['--dry-run'], guard: ['--hook'] };
   if (!command || command === 'help' || command === '--help' || command === '-h') {
     console.log(USAGE);
     return command ? 0 : 1;
@@ -47,7 +49,7 @@ export async function main(argv = process.argv.slice(2)) {
     return 0;
   }
   if (!known[command]) {
-    console.error(`shiplane: unknown command ${command}\n\n${USAGE}`);
+    console.error(`shiplane: unknown command ${command}${prNumberHint(command)}\n\n${USAGE}`);
     return 1;
   }
   const unknown = [...flags].filter(f => !known[command].includes(f));

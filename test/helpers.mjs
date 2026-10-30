@@ -73,5 +73,7 @@ export function memReader(files) {
     exists: p => Object.prototype.hasOwnProperty.call(files, p) || dirs.has(p),
     isDir: p => dirs.has(p),
     list: dir => Object.keys(files).filter(p => dirname(p) === dir),
+    walk: dir => Object.keys(files).filter(p => p.startsWith(`${dir}/`)).sort(),
+    grep: text => Object.keys(files).filter(p => typeof files[p] === 'string' && files[p].includes(text)).sort(),
   };
 }

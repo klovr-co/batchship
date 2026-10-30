@@ -100,7 +100,7 @@ test('a red batch: exit 3 with Mergify\'s reason and the next step', async () =>
   const out = await ship(w.opts());
   assert.equal(out.code, EXIT.dequeued);
   assert.match(out.line, /Mergify took it out of the queue: The merge conditions cannot be satisfied due to failing checks/);
-  assert.match(out.next, /fix the failure, push, then run shiplane ship 7 again/);
+  assert.match(out.next, /fix the failure, push, then run shiplane 7 again/);
 });
 
 test('an old "Dequeued" answer from before this run is not read as a new failure', async () => {

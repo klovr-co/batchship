@@ -58,9 +58,9 @@ test('evaluate (a): a queued PR must be live or followed by a live shiplane ship
   assert.deepEqual(one(running()), [], 'a live shiplane ship follows it');
   assert.deepEqual(one(done(2, { waiting: 'needs-owner' })), [], 'refused for needs-owner: the owner\'s turn');
   assert.deepEqual(one(done(2, { waiting: 'hold' })), []);
-  assert.match(one(running({ pid: 99 }))[0].text, /no shiplane ship is following it: run `shiplane ship 5 --background`/, 'pid gone');
-  assert.match(one(running({ updatedAt: new Date(NOW - 3_600_000).toISOString() }))[0].text, /no shiplane ship is following/, 'stale heartbeat (pid reused)');
-  assert.match(one(null)[0].text, /no shiplane ship is following/, 'no state at all');
+  assert.match(one(running({ pid: 99 }))[0].text, /no shiplane run is following it: run `shiplane 5 --background`/, 'pid gone');
+  assert.match(one(running({ updatedAt: new Date(NOW - 3_600_000).toISOString() }))[0].text, /no shiplane run is following/, 'stale heartbeat (pid reused)');
+  assert.match(one(null)[0].text, /no shiplane run is following/, 'no state at all');
   assert.equal(one(null)[0].once, true, 'once per session per PR');
   assert.deepEqual(one(running({ pid: 99 }), { open: false }), [], 'GitHub says closed or merged: nothing to follow');
   assert.equal(one(running({ pid: 99 }), { open: null }).length, 1, 'GitHub unreachable: the stored state decides');
@@ -148,7 +148,7 @@ test('the Stop hook in a temp repo: blocks with the Claude Code JSON, twice at m
   assert.equal(first.code, 0);
   const json = JSON.parse(first.out[0]);
   assert.equal(json.decision, 'block');
-  assert.match(json.reason, /^shiplane guard: PR #5 was queued but no shiplane ship is following it.* Also: You asked the user a question/);
+  assert.match(json.reason, /^shiplane guard: PR #5 was queued but no shiplane run is following it.* Also: You asked the user a question/);
   const second = await hook({ ...payload, stop_hook_active: true });
   assert.deepEqual(second.out, [], 'both reasons were given this turn: no second block for them');
   writeJson(shipStatePath(wt, 5), done(3));
@@ -165,7 +165,7 @@ test('the Stop hook in a temp repo: blocks with the Claude Code JSON, twice at m
   const code = await guardMain({ env: { CLAUDE_CODE_SESSION_ID: 'sess-1' }, cwd: wt, out: t => out.push(t), prInfo: () => null, isAlive: () => false, now: NOW });
   assert.equal(code, 1);
   assert.equal(out.length, 1);
-  assert.match(out[0], /^shiplane guard: PR #5 was queued but no shiplane ship is following it/);
+  assert.match(out[0], /^shiplane guard: PR #5 was queued but no shiplane run is following it/);
 });
 
 test('the Stop hook fails open and stays out of the way', async () => {
@@ -208,7 +208,7 @@ test('an unfollowed PR blocks once per session, and not at all when GitHub says 
   recordSessionPr(root, 'sess-u', { number: 6, queued: true });
   writeJson(shipStatePath(root, 6), running({ pid: 99 }));
   const base = { hook_event_name: 'Stop', session_id: 'sess-u', cwd: root, last_assistant_message: 'Done.' };
-  assert.match(JSON.parse((await hook({ ...base, prompt_id: 'p1' })).out[0]).reason, /PR #6 was queued but no shiplane ship/);
+  assert.match(JSON.parse((await hook({ ...base, prompt_id: 'p1' })).out[0]).reason, /PR #6 was queued but no shiplane run/);
   assert.deepEqual((await hook({ ...base, prompt_id: 'p2' })).out, [], 'already said this session');
   recordSessionPr(root, 'sess-m', { number: 6, queued: true });
   const asked = [];

@@ -57,8 +57,8 @@ test('evaluate: a PR waited on with a PR watch alone is unfollowed, every turn; 
   // A ship that finished with a failure: its result, once per session, not "run ship" every turn.
   const failed = evaluate({ prs: [{ number: 1087, queued: false, watched: true, state: { status: 'done', code: 4, line: 'shiplane ship #1087: deploy failed', endedAt: 't' }, labels: null, open: null }], isAlive: alive, now: NOW });
   assert.deepEqual(failed.map(r => [r.key, r.once]), [['pr-1087-exit-4-t', true]]);
-  const [reason] = evaluate({ prs: [{ number: 7, queued: false, watched: true, state: null, labels: ['queue'], open: true }], isAlive: alive, now: NOW, cli: 'node .agents/shiplane/shiplane.mjs ship' });
-  assert.match(reason.text, /PR watch ends at merge without waking you.*run `node \.agents\/shiplane\/shiplane\.mjs ship 7 --background`/);
+  const [reason] = evaluate({ prs: [{ number: 7, queued: false, watched: true, state: null, labels: ['queue'], open: true }], isAlive: alive, now: NOW, cli: 'node .agents/shiplane/shiplane.mjs' });
+  assert.match(reason.text, /PR watch ends at merge without waking you.*run `node \.agents\/shiplane\/shiplane\.mjs 7 --background`/);
   assert.equal(reason.once, undefined, 'not once per session: every turn that ends on a watch alone');
 });
 
@@ -69,7 +69,7 @@ test('the Stop hook blocks a turn whose only wait is a PR watch, even for a PR t
   const asked = [];
   const r = runGuard({ payload, env: {}, prInfo: n => { asked.push(n); return { labels: ['queue'], open: true }; }, isAlive: alive, now: NOW });
   assert.deepEqual(asked, [1087]);
-  assert.match(r.reason, /^shiplane guard: PR #1087 is waited on with a PR watch alone.*`node \.agents\/shiplane\/shiplane\.mjs ship 1087 --background`/);
+  assert.match(r.reason, /^shiplane guard: PR #1087 is waited on with a PR watch alone.*`node \.agents\/shiplane\/shiplane\.mjs 1087 --background`/);
   // A ship that now follows it: the turn may end.
   stateDir(dir);
   writeJson(shipStatePath(dir, 1087), { status: 'running', pid: 4242, updatedAt: new Date(NOW).toISOString() });
@@ -82,7 +82,7 @@ test('dedupe: the same stop seen by a user-level and a project-level hook blocks
   const payload = { hook_event_name: 'Stop', session_id: 'sess-d', cwd: dir, prompt_id: 'p1', stop_hook_active: false, last_assistant_message: 'Queued #5.' };
   const opts = { env: {}, prInfo: () => null, isAlive: () => false };
   const first = runGuard({ payload, ...opts, now: NOW });
-  assert.match(first.reason, /PR #5 was queued but no shiplane ship is following it: run `shiplane ship 5 --background`/);
+  assert.match(first.reason, /PR #5 was queued but no shiplane run is following it: run `shiplane 5 --background`/);
   const second = runGuard({ payload, ...opts, now: NOW + 200 });
   assert.deepEqual(second, { reason: null, duplicate: true });
   // The agent's next stop in the same turn is a new event (a hook continuation), not a duplicate.

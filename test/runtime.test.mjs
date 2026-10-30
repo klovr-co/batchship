@@ -61,7 +61,7 @@ test('the vendored set: every file a runtime file imports is vendored too, and n
   for (const heavy of ['init.mjs', 'doctor.mjs', 'setup.mjs', 'upkeep.mjs', 'render.mjs', 'harness.mjs']) assert.ok(!set.has(heavy), `${heavy} stays in shiplane`);
 });
 
-test('node .agents/shiplane/shiplane.mjs works from a clone without shiplane: --version, ship --status, guard, usage errors', () => {
+test('node .agents/shiplane/shiplane.mjs works from a clone without shiplane: --version, <pr> --status, ship --status, guard, usage errors', () => {
   const { dir, plan } = initedRepo();
   const files = byPath(plan);
   assert.ok(files['.agents/shiplane/shiplane.mjs'], 'the entry point is vendored');
@@ -73,6 +73,10 @@ test('node .agents/shiplane/shiplane.mjs works from a clone without shiplane: --
   const status = run('ship', '--status', '5');
   assert.equal(status.status, 1);
   assert.match(status.stdout, /shiplane ship #5: no state on this machine/);
+  const short = run('5', '--status');
+  assert.equal(short.status, 1);
+  assert.equal(short.stdout, status.stdout, 'the default command is ship: <pr> --status is ship --status <pr>');
+  assert.equal(run('05').status, 1);
   assert.equal(run('ship', '05').status, 1);
   assert.equal(run('ship', '5', '--bogus').status, 1);
   assert.equal(run('guard').status, 0, 'nothing tracked: the turn may end');

@@ -5,9 +5,9 @@ description: Ship PRs through the repo's merge queue with shiplane. Use when the
 
 # Shipping with shiplane
 
-The repo's rules are the shiplane block in AGENTS.md; settings are in `.agents/config.yml`. Run ship from the repo's own
-copy, which needs no install: `node .agents/shiplane/shiplane.mjs ship <n>`. An installed `shiplane ship <n>` is the same code;
-below, `ship` means either.
+The repo's rules are the shiplane block in AGENTS.md; settings are in `.agents/config.yml`. Ship from the repo's own
+copy, which needs no install: `node .agents/shiplane/shiplane.mjs <n>`. An installed `shiplane <n>` is the same code
+(`ship <n>` is the same command spelled out); below, `ship <n>` means any of them.
 
 ## What the user said → what you run
 
@@ -15,19 +15,19 @@ The verb never matters ("ship", "merge", "go", "make it live", "pr and merge" al
 
 | They said | You do |
 |---|---|
-| "ship it", "ship", "this", no scope | `node .agents/shiplane/shiplane.mjs ship <the PR you are discussing> --background` |
+| "ship it", "ship", "this", no scope | `node .agents/shiplane/shiplane.mjs <the PR you are discussing> --background` |
 | "all", "everything", "them", "these" | `ship <n> --background` for every PR in **your last list to them**, never every open PR. Needs-owner PRs in that list are included: "all" is their yes, so first `gh pr edit <n> --remove-label needs-owner --add-label approved`. |
 | "except #X", "not #X", "hold #X" | `gh pr edit X --add-label hold`, then ship the rest |
-| "now", "asap", "urgent", "hotfix", "don't wait" | `ship <the one that matters most> --now --background`; the rest with plain `ship --background`. Tell them the rest follow in the next batch. |
+| "now", "asap", "urgent", "hotfix", "don't wait" | `ship <the one that matters most> --now --background`; the rest with plain `ship <n> --background`. Tell them the rest follow in the next batch. |
 | "yes" / "go" answering your Needs-owner question | `gh pr edit <n> --remove-label needs-owner --add-label approved`, then `ship <n> --background` |
 | "wait", "not yet", "hold" | `gh pr edit <n> --add-label hold`; do not ship |
 
 Don't ask before shipping. Ask only when the scope is ambiguous (two lists, no list); then ask once and say what you will do if they don't answer.
 
-Wait with `ship --background`, never with a PR watch alone (T3's PR watch ends at merge without waking you): the
-deploy result would never reach you. Run `node .agents/shiplane/shiplane.mjs ship <n> --background` in a background shell (your
+Wait with `--background`, never with a PR watch alone (T3's PR watch ends at merge without waking you): the
+deploy result would never reach you. Run `node .agents/shiplane/shiplane.mjs <n> --background` in a background shell (your
 harness's background command, e.g. Claude Code's `run_in_background`): it prints one line when it exits and you are
-woken then. Don't poll and don't sleep; `node .agents/shiplane/shiplane.mjs ship --status <n>` prints the last state without
+woken then. Don't poll and don't sleep; `node .agents/shiplane/shiplane.mjs <n> --status` prints the last state without
 waiting. A PR watch next to it is fine (it reports review comments); it is not the wait. Several PRs: start each in its own background shell,
 close together, so Mergify tests them in one batch.
 Without being asked, use `--now` only when the ship branch is red, your PR fixes it, and no other open PR has `hotfix`.
