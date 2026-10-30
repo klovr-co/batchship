@@ -1,7 +1,7 @@
 // tug init end to end (#9.1, #9.2) on a temp repo whose origin is a bare repo in the same temp dir, with a fake
 // GitHub client: no network, no real remote. The repo's own pre-push hook runs on init's pushes.
 import assert from 'node:assert/strict';
-import { chmodSync, mkdirSync } from 'node:fs';
+import { chmodSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { after, test } from 'node:test';
 import { applyInit, fixIgnoreRules, LABELS } from '../lib/init.mjs';
@@ -62,8 +62,8 @@ test('#9.1/#9.2 init installs dependencies before pushing (the repo\'s gate pass
   for (const f of ['.agents/tug/tug.mjs', '.agents/tug/pre-push.mjs', '.agents/tug.lock', '.claude/settings.json', '.codex/hooks.json', '.githooks/pre-push.repo']) assert.ok(files.includes(f), `${f} reached the commit`);
   assert.ok(!files.some(f => f.startsWith('node_modules/')), 'the install is not committed');
   const ignore = testGit(bare, ['show', `tug/init-v${VERSION}:.gitignore`]);
-  assert.equal(ignore, 'node_modules/\n.agents/*\n!.agents/tug.lock\n!.agents/tug/\n.agents/state/\n');
-  assert.match(client.prs[0].body, /update `\.gitignore`: it ignored tug's files; `\.agents\/` -> `\.agents\/\*` `!\.agents\/tug\.lock` `!\.agents\/tug\/`/);
+  assert.equal(ignore, 'node_modules/\n.agents/*\n!.agents/tug.lock\n!.agents/tug/\n*/**/.agents/\n.agents/state/\n');
+  assert.match(client.prs[0].body, /update `\.gitignore`: it ignored tug's files; `\.agents\/` -> `\.agents\/\*` `!\.agents\/tug\.lock` `!\.agents\/tug\/` `\*\/\*\*\/\.agents\/`/);
   assert.match(client.prs[0].body, /^Needs owner:/);
   assert.match(testGit(bare, ['show', `tug/init-v${VERSION}:AGENTS.md`]), /org:acme\+label:needs-owner,hold/);
 });
@@ -91,13 +91,14 @@ test('#9.1 a push the repo\'s gate refuses: init says why, keeps the work, and s
   }
 });
 
-test('#9.2 an ignore rule tug cannot rewrite: init refuses clearly before anything is pushed', async () => {
+test('#9.2 an ignore rule tug cannot rewrite: init refuses the init PR clearly, pushes nothing for it, still opens the events PR', async () => {
   const { dir, bare } = repoWithOrigin({ '.gitignore': '*.mjs\n' }, '#!/bin/sh\nexit 0\n');
   const client = fakeClient();
   const lines = [];
-  await assert.rejects(applyInit({ cwd: dir, client, info, log: t => lines.push(String(t)) }), /\.agents\/tug\/[\w/-]+\.mjs is ignored by \.gitignore:1 \(`\*\.mjs`\), which tug init cannot rewrite safely/);
-  assert.equal(client.prs.length, 0);
-  assert.equal(testGit(bare, ['branch', '--list', 'tug/*']).trim(), '');
+  assert.equal(await applyInit({ cwd: dir, client, info, log: t => lines.push(String(t)) }), 1);
+  assert.match(lines.join('\n'), /init PR not opened: refusing: \.agents\/tug\/[\w/-]+\.mjs is ignored by \.gitignore:1 \(`\*\.mjs`\), which tug init cannot rewrite safely/);
+  assert.deepEqual(client.prs.map(p => p.head), [`tug/events-v${VERSION}`]);
+  assert.equal(testGit(bare, ['branch', '--list', 'tug/init*']).trim(), '');
   for (const line of lines) {
     const m = /left the work in (\S+) /.exec(line);
     if (m) {
@@ -111,7 +112,26 @@ test('fixIgnoreRules: directory rules become dir/* plus exceptions; anchored and
   const hits = p => p.map(([path, line, pattern]) => ({ path, source: '.gitignore', line, pattern }));
   const r = fixIgnoreRules('a\r\n/.agents/\r\nb\r\n', hits([['.agents/tug/git.mjs', 2, '/.agents/'], ['.agents/config.yml', 2, '/.agents/']]));
   assert.equal(r.text, 'a\r\n/.agents/*\r\n!/.agents/config.yml\r\n!/.agents/tug/\r\nb\r\n');
-  assert.equal(fixIgnoreRules('.agents/**\n', hits([['.agents/tug.lock', 1, '.agents/**']])).text, '.agents/*\n!.agents/tug.lock\n');
+  assert.equal(fixIgnoreRules('.agents/**\n', hits([['.agents/tug.lock', 1, '.agents/**']])).text, '.agents/*\n!.agents/tug.lock\n*/**/.agents/\n');
   assert.match(fixIgnoreRules('x\n', [{ path: '.agents/tug/a.mjs', source: '/home/me/.config/git/ignore', line: 3, pattern: '.agents' }]).refuse, /cannot rewrite/);
   assert.match(fixIgnoreRules('.a*/\n', hits([['.agents/x', 1, '.a*/']])).refuse, /cannot rewrite/);
+});
+
+test('fixIgnoreRules in git: tug\'s files are tracked again, nested .agents/ and .agents/state/ stay ignored', () => {
+  const dir = tempRepo({ '.gitignore': '.agents/\n' });
+  repos.push(dir);
+  const fixed = fixIgnoreRules('.agents/\n', [{ path: '.agents/tug/git.mjs', source: '.gitignore', line: 1, pattern: '.agents/' }, { path: '.agents/config.yml', source: '.gitignore', line: 1, pattern: '.agents/' }]);
+  writeFileSync(join(dir, '.gitignore'), fixed.text);
+  const ignored = p => {
+    try {
+      testGit(dir, ['check-ignore', '-q', '--no-index', p]);
+      return true; // exit 0: ignored
+    } catch {
+      return false; // exit 1: not ignored
+    }
+  };
+  assert.equal(ignored('.agents/tug/git.mjs'), false);
+  assert.equal(ignored('.agents/config.yml'), false);
+  assert.equal(ignored('.agents/state/ship-1.json'), true);
+  assert.equal(ignored('packages/x/.agents/notes.md'), true, 'deeper .agents/ folders are still ignored');
 });

@@ -39,18 +39,24 @@ test('watched PRs from the transcript: Claude Code tool_use and Codex function_c
     claudeWatch('Bash', { command: 'gh pr view 5' }),
   ]);
   assert.deepEqual(watchedPrsFromTranscript(path).sort(), [1087, 1090]);
+  assert.deepEqual(watchedPrsFromTranscript(path, { repo: 'klovr-co/aldrent' }).sort(), [1087, 1090]);
+  assert.deepEqual(watchedPrsFromTranscript(path, { repo: 'klovr-co/3ven' }), [], 'watches on another repo\'s PRs are not this repo\'s');
   assert.deepEqual(watchedPrsFromTranscript(join(dir, 'missing.jsonl')), []);
 });
 
 test('evaluate: a PR waited on with a PR watch alone is unfollowed, every turn; a live ship or a merge clears it', () => {
   const ev = (pr, cli) => evaluate({ prs: [{ number: 1087, queued: false, watched: true, state: null, labels: ['queue'], open: true, ...pr }], message: 'Waiting for the merge.', isAlive: alive, now: NOW, cli }).map(r => r.key);
   assert.deepEqual(ev({}), ['pr-1087-watch-only']);
-  assert.deepEqual(ev({ labels: null }), ['pr-1087-watch-only'], 'labels unknown: still a wait on a PR');
+  assert.deepEqual(ev({ labels: null, open: null }), [], 'GitHub not reachable: fail open');
+  assert.deepEqual(ev({ open: null }), [], 'open unknown: fail open');
   assert.deepEqual(ev({ labels: ['needs-owner'] }), [], 'not queued: a watch for review comments is fine');
   assert.deepEqual(ev({ queued: true, labels: [] }), ['pr-1087-watch-only'], 'queued by this session, waited on by a watch');
   assert.deepEqual(ev({ open: false }), [], 'merged or closed');
   assert.deepEqual(ev({ state: { status: 'running', pid: 4242, updatedAt: new Date(NOW - 1000).toISOString() } }), [], 'a live tug ship follows it');
   assert.deepEqual(ev({ state: { status: 'done', code: 0 } }), []);
+  // A ship that finished with a failure: its result, once per session, not "run ship" every turn.
+  const failed = evaluate({ prs: [{ number: 1087, queued: false, watched: true, state: { status: 'done', code: 4, line: 'tug ship #1087: deploy failed', endedAt: 't' }, labels: null, open: null }], isAlive: alive, now: NOW });
+  assert.deepEqual(failed.map(r => [r.key, r.once]), [['pr-1087-exit-4-t', true]]);
   const [reason] = evaluate({ prs: [{ number: 7, queued: false, watched: true, state: null, labels: ['queue'], open: true }], isAlive: alive, now: NOW, cli: 'node .agents/tug/tug.mjs ship' });
   assert.match(reason.text, /PR watch ends at merge without waking you.*run `node \.agents\/tug\/tug\.mjs ship 7 --background`/);
   assert.equal(reason.once, undefined, 'not once per session: every turn that ends on a watch alone');

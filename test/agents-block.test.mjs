@@ -11,7 +11,7 @@ test('the block has the markers, the version and the ship branch', () => {
   assert.ok(block.startsWith(`<!-- tug:start v${VERSION} -->\n## Shipping (managed by tug; settings in .agents/config.yml)`));
   assert.ok(block.endsWith('<!-- tug:end -->'));
   assert.match(block, /from a fresh origin\/staging\. Never push to it/);
-  assert.match(block, /`node \.agents\/tug\/tug\.mjs ship <pr> --background` in a background shell \(an installed `tug ship` is the same/);
+  assert.match(block, /`node \.agents\/tug\/tug\.mjs ship <pr> --background` in a background shell, from the repo root \(an installed `tug ship` is the same/);
   assert.equal(block.split('\n').filter(l => /^\d\. /.test(l)).length, 9);
   assert.match(block, /Wait with `ship --background`, never with a PR watch alone \(T3's PR watch ends at merge without waking you\)/);
   assert.equal(agentsBlockVersion(block), VERSION);

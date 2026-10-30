@@ -36,6 +36,10 @@ test('#9.3 superseded AGENTS sections are removed in the init PR and listed; sup
   assert.deepEqual(r.removed, ['Old shipping']);
   assert.equal(r.text, '# A\r\n\r\n## Keep\r\ny\r\n');
   assert.deepEqual(removeSupersededSections('<!-- tug:start v1 -->\n## Merging\n<!-- tug:end -->\n', ['Merging']).removed, []);
+  // Only `##` sections: a "### Merging" under another topic, or a "# Merging" document, is the repo's own.
+  const nested = '## Database migrations\nx\n\n### Merging\nkeep\n';
+  assert.deepEqual(removeSupersededSections(nested, ['Merging']).removed, []);
+  assert.deepEqual(removeSupersededSections('# Merging\n\n## Setup\nkeep\n', ['Merging']).removed, []);
 });
 
 test('#9.4 workflowHeader lines stay at the top of tug-events.yml; existing "# Dry run:"/"# Revert:" lines survive a re-render', () => {
@@ -133,6 +137,12 @@ test('A.3 .githooks: the repo\'s own pre-push is kept and run first; a re-run ke
   const dup = planInit({ reader: memReader({ '.githooks/pre-push': threeVen, '.agents/config.yml': 'checkCommand: node scripts/check-before-push.mjs --hook\n' }), defaultBranch: 'main' });
   assert.ok(!byPath(dup)[REPO_HOOK]);
   assert.ok(dup.notes.some(n => /it ran checkCommand/.test(n)));
+  // A hook that does more than checkCommand is kept, so its other checks keep running.
+  const more = planInit({ reader: memReader({ '.githooks/pre-push': '#!/bin/sh\nnode scripts/check-before-push.mjs --hook "$@" || exit 1\n./scripts/secrets-scan.sh\n', '.agents/config.yml': 'checkCommand: node scripts/check-before-push.mjs --hook\n' }), defaultBranch: 'main' });
+  assert.ok(byPath(more)[REPO_HOOK]);
+  // --force replaces a non-tug hook but keeps calling an existing .githooks/pre-push.repo.
+  const forced = planInit({ reader: memReader({ ...tree, '.githooks/pre-push': '#!/bin/sh\necho mine\n' }), defaultBranch: 'main', force: true });
+  assert.match(byPath(forced)['.githooks/pre-push'].content, /\.\/\.githooks\/pre-push\.repo/);
 });
 
 test('A.3/A.4 the AGENTS block: the hook line first, the needs-me browser link with the org, ship through .agents/tug', () => {
