@@ -8,7 +8,7 @@ import { dirname, join, sep } from 'node:path';
 const TMP = realpathSync(tmpdir());
 // The code under test runs git too: keep this machine's global and system git config out of it.
 process.env.GIT_CONFIG_NOSYSTEM = '1';
-process.env.GIT_CONFIG_GLOBAL = join(TMP, 'tug-test-no-global-gitconfig');
+process.env.GIT_CONFIG_GLOBAL = join(TMP, 'shiplane-test-no-global-gitconfig');
 
 /** Throws unless `path` is a non-empty path strictly inside the OS temp dir. */
 export function assertInTmp(path) {
@@ -21,17 +21,17 @@ export function assertInTmp(path) {
 /** Git with no global or system config (no hooks, signing or templates from this machine) and no network remotes. */
 export function testGit(cwd, args, options = {}) {
   assertInTmp(cwd);
-  const env = { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: join(TMP, 'tug-test-no-global-gitconfig'), GIT_TERMINAL_PROMPT: '0' };
+  const env = { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: join(TMP, 'shiplane-test-no-global-gitconfig'), GIT_TERMINAL_PROMPT: '0' };
   for (const name of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR', 'GIT_PREFIX', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES']) delete env[name];
   return execFileSync('git', args, { cwd, encoding: 'utf8', env, stdio: ['pipe', 'pipe', 'pipe'], ...options });
 }
 
 /** A fresh repo on branch main with one commit; origin/main points at it (a ref only: there is no remote). */
 export function tempRepo(files = { 'README.md': 'hello\n' }) {
-  const dir = assertInTmp(mkdtempSync(join(TMP, 'tug-test-')));
+  const dir = assertInTmp(mkdtempSync(join(TMP, 'shiplane-test-')));
   testGit(dir, ['init', '-q', '-b', 'main']);
   testGit(dir, ['config', 'user.email', 'test@example.com']);
-  testGit(dir, ['config', 'user.name', 'tug test']);
+  testGit(dir, ['config', 'user.name', 'shiplane test']);
   testGit(dir, ['config', 'commit.gpgsign', 'false']);
   testGit(dir, ['config', 'core.autocrlf', 'false']);
   writeFiles(dir, files);
@@ -73,5 +73,7 @@ export function memReader(files) {
     exists: p => Object.prototype.hasOwnProperty.call(files, p) || dirs.has(p),
     isDir: p => dirs.has(p),
     list: dir => Object.keys(files).filter(p => dirname(p) === dir),
+    walk: dir => Object.keys(files).filter(p => p.startsWith(`${dir}/`)).sort(),
+    grep: text => Object.keys(files).filter(p => typeof files[p] === 'string' && files[p].includes(text)).sort(),
   };
 }

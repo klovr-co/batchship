@@ -51,8 +51,11 @@ test('gate in a temp repo: checkCommand runs with the hook stdin; failure fails 
   repos.push(dir);
   const sha = commit(dir, { 'a.txt': 'one\ntwo\n' });
   const input = `HEAD ${sha} refs/heads/fix ${Z}\n`;
-  const pass = runPrePush({ root: dir, hookInput: input, config: parseConfig(`checkCommand: "grep -q refs/heads/fix && test \\"$TUG_SHIP_BRANCH\\" = main"\n`), ...quiet });
+  const pass = runPrePush({ root: dir, hookInput: input, config: parseConfig(`checkCommand: "grep -q refs/heads/fix && test \\"$SHIPLANE_SHIP_BRANCH\\" = main"\n`), ...quiet });
   assert.equal(pass.ok, true, JSON.stringify(pass.failures));
+  // A checkCommand written against tug still gets its names.
+  const legacy = runPrePush({ root: dir, hookInput: input, config: parseConfig(`checkCommand: "test \\"$TUG_SHIP_BRANCH\\" = main && test -n \\"$TUG_BASE_REF\\""\n`), ...quiet });
+  assert.equal(legacy.ok, true, JSON.stringify(legacy.failures));
   const fail = runPrePush({ root: dir, hookInput: input, config: parseConfig('checkCommand: "exit 3"\n'), ...quiet });
   assert.equal(fail.ok, false);
   assert.match(fail.failures[0].name, /exit 3/);

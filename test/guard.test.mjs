@@ -12,7 +12,7 @@ after(() => repos.forEach(removeRepo));
 const NOW = Date.parse('2026-10-29T12:00:00Z');
 const alive = pid => pid === 4242;
 const running = (extra = {}) => ({ status: 'running', pid: 4242, updatedAt: new Date(NOW - 60_000).toISOString(), ...extra });
-const done = (code, extra = {}) => ({ status: 'done', code, line: `tug ship #5: result ${code}`, next: code ? 'do the thing' : null, updatedAt: new Date(NOW).toISOString(), ...extra });
+const done = (code, extra = {}) => ({ status: 'done', code, line: `shiplane ship #5: result ${code}`, next: code ? 'do the thing' : null, updatedAt: new Date(NOW).toISOString(), ...extra });
 
 test('asksQuestion: a sentence ending in ? in prose, not in code, quotes or links', () => {
   assert.equal(asksQuestion('Done. Want me to ship it?'), true);
@@ -52,22 +52,22 @@ test('lastMessage: the payload field first, else the transcript (Claude Code and
   assert.equal(lastMessage({ transcript_path: join(dir, 'missing.jsonl') }), null);
 });
 
-test('evaluate (a): a queued PR must be live or followed by a live tug ship', () => {
+test('evaluate (a): a queued PR must be live or followed by a live shiplane ship', () => {
   const one = (state, extra = {}) => evaluate({ prs: [{ number: 5, queued: true, state, labels: null, open: null, ...extra }], message: 'ok', isAlive: alive, now: NOW });
   assert.deepEqual(one(done(0)), [], 'merged and deployed');
-  assert.deepEqual(one(running()), [], 'a live tug ship follows it');
+  assert.deepEqual(one(running()), [], 'a live shiplane ship follows it');
   assert.deepEqual(one(done(2, { waiting: 'needs-owner' })), [], 'refused for needs-owner: the owner\'s turn');
   assert.deepEqual(one(done(2, { waiting: 'hold' })), []);
-  assert.match(one(running({ pid: 99 }))[0].text, /no tug ship is following it: run `tug ship 5 --background`/, 'pid gone');
-  assert.match(one(running({ updatedAt: new Date(NOW - 3_600_000).toISOString() }))[0].text, /no tug ship is following/, 'stale heartbeat (pid reused)');
-  assert.match(one(null)[0].text, /no tug ship is following/, 'no state at all');
+  assert.match(one(running({ pid: 99 }))[0].text, /no shiplane run is following it: run `shiplane 5 --background`/, 'pid gone');
+  assert.match(one(running({ updatedAt: new Date(NOW - 3_600_000).toISOString() }))[0].text, /no shiplane run is following/, 'stale heartbeat (pid reused)');
+  assert.match(one(null)[0].text, /no shiplane run is following/, 'no state at all');
   assert.equal(one(null)[0].once, true, 'once per session per PR');
   assert.deepEqual(one(running({ pid: 99 }), { open: false }), [], 'GitHub says closed or merged: nothing to follow');
   assert.equal(one(running({ pid: 99 }), { open: null }).length, 1, 'GitHub unreachable: the stored state decides');
   const failed = one(done(4));
   assert.equal(failed[0].key, 'pr-5-exit-4-2026-10-29T12:00:00.000Z');
   assert.equal(failed[0].once, true);
-  assert.equal(failed[0].text, 'PR #5 is not live: tug ship #5: result 4 · next: do the thing');
+  assert.equal(failed[0].text, 'PR #5 is not live: shiplane ship #5: result 4 · next: do the thing');
   assert.deepEqual(evaluate({ prs: [{ number: 5, queued: false, state: done(3) }], message: '', isAlive: alive, now: NOW }), [], 'never queued: not this rule');
 });
 
@@ -87,23 +87,23 @@ test('evaluate (b): a question needs an open needs-owner PR from this session', 
 test('decide: at most 2 blocks per turn, each reason once; a new turn starts over', () => {
   const r = key => ({ key, text: `reason ${key}` });
   let { reason, counter } = decide({ reasons: [r('a')], counter: null, turnKey: 't1' });
-  assert.equal(reason, 'tug guard: reason a');
+  assert.equal(reason, 'shiplane guard: reason a');
   ({ reason, counter } = decide({ reasons: [r('a')], counter, turnKey: 't1' }));
   assert.equal(reason, null, 'the same reason does not block twice');
   ({ reason, counter } = decide({ reasons: [r('a'), r('b')], counter, turnKey: 't1' }));
-  assert.equal(reason, 'tug guard: reason b');
+  assert.equal(reason, 'shiplane guard: reason b');
   ({ reason, counter } = decide({ reasons: [r('c')], counter, turnKey: 't1' }));
   assert.equal(reason, null, `cap of ${BLOCK_CAP}`);
   assert.equal(counter.blocks, 2);
   ({ reason } = decide({ reasons: [r('a')], counter, turnKey: 't2' }));
-  assert.equal(reason, 'tug guard: reason a', 'new turn id: counts reset');
+  assert.equal(reason, 'shiplane guard: reason a', 'new turn id: counts reset');
   // Without a turn id: a Stop that is a hook continuation is the same turn; one that is not starts a new one.
   let c2 = decide({ reasons: [r('a')], counter: null, stopHookActive: false }).counter;
   assert.equal(decide({ reasons: [r('a')], counter: c2, stopHookActive: true }).reason, null);
   c2 = decide({ reasons: [r('b')], counter: c2, stopHookActive: true }).counter;
   assert.equal(decide({ reasons: [r('c')], counter: c2, stopHookActive: true }).reason, null, 'cap without turn ids');
-  assert.equal(decide({ reasons: [r('a')], counter: c2, stopHookActive: false }).reason, 'tug guard: reason a');
-  assert.equal(decide({ reasons: [r('a'), r('b')], counter: null }).reason, 'tug guard: reason a Also: reason b', 'one line');
+  assert.equal(decide({ reasons: [r('a')], counter: c2, stopHookActive: false }).reason, 'shiplane guard: reason a');
+  assert.equal(decide({ reasons: [r('a'), r('b')], counter: null }).reason, 'shiplane guard: reason a Also: reason b', 'one line');
   // A turn id that changes on every continuation must not reset the cap: stop_hook_active means the same turn.
   let c4 = null;
   let blocks = 0;
@@ -117,11 +117,11 @@ test('decide: at most 2 blocks per turn, each reason once; a new turn starts ove
   const once = { key: 'pr-5-exit-4-t', once: true, text: 'failed' };
   const c3 = decide({ reasons: [once], counter: null, turnKey: 'p1' }).counter;
   assert.equal(decide({ reasons: [once], counter: c3, turnKey: 'p2' }).reason, null);
-  assert.equal(decide({ reasons: [once, r('q')], counter: c3, turnKey: 'p2' }).reason, 'tug guard: reason q');
+  assert.equal(decide({ reasons: [once, r('q')], counter: c3, turnKey: 'p2' }).reason, 'shiplane guard: reason q');
 });
 
-/** A tug repo (config present) with a worktree; the session's records live in the worktree, as tug ship writes them. */
-function tugRepo() {
+/** A shiplane repo (config present) with a worktree; the session's records live in the worktree, as shiplane ship writes them. */
+function shiplaneRepo() {
   const dir = tempRepo({ '.agents/config.yml': 'shipTarget: production\n', 'README.md': 'x\n' });
   repos.push(dir);
   const wt = assertInTmp(dir) + '-wt';
@@ -139,7 +139,7 @@ const hook = async (payload, opts = {}) => {
 };
 
 test('the Stop hook in a temp repo: blocks with the Claude Code JSON, twice at most, then lets the turn end', async () => {
-  const { root, wt } = tugRepo();
+  const { root, wt } = shiplaneRepo();
   recordSessionPr(wt, 'sess-1', { number: 5, queued: true });
   stateDir(wt);
   writeJson(shipStatePath(wt, 5), running({ pid: 99 }));
@@ -148,28 +148,28 @@ test('the Stop hook in a temp repo: blocks with the Claude Code JSON, twice at m
   assert.equal(first.code, 0);
   const json = JSON.parse(first.out[0]);
   assert.equal(json.decision, 'block');
-  assert.match(json.reason, /^tug guard: PR #5 was queued but no tug ship is following it.* Also: You asked the user a question/);
+  assert.match(json.reason, /^shiplane guard: PR #5 was queued but no shiplane run is following it.* Also: You asked the user a question/);
   const second = await hook({ ...payload, stop_hook_active: true });
   assert.deepEqual(second.out, [], 'both reasons were given this turn: no second block for them');
   writeJson(shipStatePath(wt, 5), done(3));
   const third = await hook({ ...payload, stop_hook_active: true });
-  assert.match(JSON.parse(third.out[0]).reason, /PR #5 is not live: tug ship #5: result 3/);
+  assert.match(JSON.parse(third.out[0]).reason, /PR #5 is not live: shiplane ship #5: result 3/);
   writeJson(shipStatePath(wt, 5), done(4));
   assert.deepEqual((await hook({ ...payload, stop_hook_active: true })).out, [], 'cap reached: the turn ends');
   const nextTurn = await hook({ ...payload, prompt_id: 'p2', last_assistant_message: 'Done.' });
   assert.match(JSON.parse(nextTurn.out[0]).reason, /PR #5 is not live/, 'a new prompt is a new turn');
   writeJson(shipStatePath(wt, 5), running());
-  assert.deepEqual((await hook({ ...payload, prompt_id: 'p3', last_assistant_message: 'Done.' })).out, [], 'a live tug ship follows it: the turn ends');
+  assert.deepEqual((await hook({ ...payload, prompt_id: 'p3', last_assistant_message: 'Done.' })).out, [], 'a live shiplane ship follows it: the turn ends');
   // The session id from the environment works too (plain mode, no counter).
   const out = [];
   const code = await guardMain({ env: { CLAUDE_CODE_SESSION_ID: 'sess-1' }, cwd: wt, out: t => out.push(t), prInfo: () => null, isAlive: () => false, now: NOW });
   assert.equal(code, 1);
   assert.equal(out.length, 1);
-  assert.match(out[0], /^tug guard: PR #5 was queued but no tug ship is following it/);
+  assert.match(out[0], /^shiplane guard: PR #5 was queued but no shiplane run is following it/);
 });
 
 test('the Stop hook fails open and stays out of the way', async () => {
-  const { root } = tugRepo();
+  const { root } = shiplaneRepo();
   for (const bad of ['not json', '{"session_id": "../../etc"}', '[]']) {
     const r = await hook(bad);
     assert.equal(r.code, 0, bad);
@@ -177,11 +177,11 @@ test('the Stop hook fails open and stays out of the way', async () => {
   }
   const broken = await hook({ hook_event_name: 'Stop', session_id: 's', cwd: root }, { prInfo: () => { throw new Error('boom'); }, isAlive: () => { throw new Error('boom'); } });
   assert.deepEqual(broken.out, []);
-  const notTug = tempRepo();
-  repos.push(notTug);
-  assert.deepEqual((await hook({ hook_event_name: 'Stop', session_id: 's', cwd: notTug, last_assistant_message: 'Which one?' })).out, [], 'not a tug repo: no opinion');
+  const notShiplane = tempRepo();
+  repos.push(notShiplane);
+  assert.deepEqual((await hook({ hook_event_name: 'Stop', session_id: 's', cwd: notShiplane, last_assistant_message: 'Which one?' })).out, [], 'not a shiplane repo: no opinion');
   assert.deepEqual((await hook({ hook_event_name: 'SubagentStop', session_id: 's', cwd: root, last_assistant_message: 'Which one?' })).out, [], 'only Stop');
-  assert.deepEqual((await hook({ tug_probe: true })).out, ['{"tug_probe":"ok"}'], 'doctor\'s probe');
+  assert.deepEqual((await hook({ shiplane_probe: true })).out, ['{"shiplane_probe":"ok"}'], 'doctor\'s probe');
   assert.deepEqual(runGuard({ payload: { hook_event_name: 'Stop', cwd: root, last_assistant_message: 'Fine.' }, env: {} }), { reason: null });
   // No session id anywhere: no tracked PRs, so a question is ordinary conversation.
   const noId = { hook_event_name: 'Stop', cwd: root, last_assistant_message: 'Which file did you mean?' };
@@ -190,7 +190,7 @@ test('the Stop hook fails open and stays out of the way', async () => {
 });
 
 test('live labels are looked up only when the message asks a question', async () => {
-  const { root } = tugRepo();
+  const { root } = shiplaneRepo();
   recordSessionPr(root, 'sess-2', { number: 8 });
   const asked = [];
   const prInfo = n => {
@@ -204,11 +204,11 @@ test('live labels are looked up only when the message asks a question', async ()
 });
 
 test('an unfollowed PR blocks once per session, and not at all when GitHub says it is closed or merged', async () => {
-  const { root } = tugRepo();
+  const { root } = shiplaneRepo();
   recordSessionPr(root, 'sess-u', { number: 6, queued: true });
   writeJson(shipStatePath(root, 6), running({ pid: 99 }));
   const base = { hook_event_name: 'Stop', session_id: 'sess-u', cwd: root, last_assistant_message: 'Done.' };
-  assert.match(JSON.parse((await hook({ ...base, prompt_id: 'p1' })).out[0]).reason, /PR #6 was queued but no tug ship/);
+  assert.match(JSON.parse((await hook({ ...base, prompt_id: 'p1' })).out[0]).reason, /PR #6 was queued but no shiplane run/);
   assert.deepEqual((await hook({ ...base, prompt_id: 'p2' })).out, [], 'already said this session');
   recordSessionPr(root, 'sess-m', { number: 6, queued: true });
   const asked = [];

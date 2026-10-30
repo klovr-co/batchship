@@ -53,9 +53,9 @@ test('idleDays uses the index mtime (portable: no stat -f)', () => {
 });
 
 test('registry: add, update by root, keep paths with spaces', () => {
-  const dir = assertInTmp(mkdtempSync(join(tmpdir(), 'tug-reg-')));
+  const dir = assertInTmp(mkdtempSync(join(tmpdir(), 'shiplane-reg-')));
   repos.push(dir);
-  const path = join(dir, 'tug', 'repos');
+  const path = join(dir, 'shiplane', 'repos');
   assert.equal(register({ root: '/a b/3ven', base: 'main', slug: 'o/3ven' }, path), true);
   assert.equal(register({ root: '/a b/3ven', base: 'main', slug: 'o/3ven' }, path), false);
   register({ root: '/x/aldrent', base: 'staging', slug: 'o/aldrent' }, path);

@@ -1,4 +1,4 @@
-# Managed by tug {{version}} from .agents/config.yml: `tug init` rewrites this file. Change the config, not this file.
+# Managed by shiplane {{version}} from .agents/config.yml: `shiplane init` rewrites this file. Change the config, not this file.
 # GitHub tells people what happened, so nobody has to ask "status?" or "is it live?":
 #   - a PR labelled needs-owner is assigned to `owners` with "Needs your decision: <first line of the PR body>";
 #   - a PR labelled hold gets "On hold. Say ship to release it.";
@@ -7,7 +7,7 @@
 # Safety: the scripts read titles, bodies and branch names from the event payload and only send them back through the
 # API. Nothing untrusted is put into a shell command or a `${{ }}` expression. pull_request_target runs this file as it
 # is on the default branch (a PR cannot change it) and checks out no code. Only the built-in GITHUB_TOKEN is used.
-name: tug events
+name: shiplane events
 
 on:
   pull_request_target:
@@ -25,13 +25,13 @@ jobs:
     steps:
       - uses: actions/github-script@{{githubScript}}
         env:
-          TUG_OWNERS: {{owners}}
+          SHIPLANE_OWNERS: {{owners}}
         with:
           script: |
             const pr = context.payload.pull_request;
             const label = context.payload.label.name;
             const { owner, repo } = context.repo;
-            const owners = JSON.parse(process.env.TUG_OWNERS || '[]');
+            const owners = JSON.parse(process.env.SHIPLANE_OWNERS || '[]');
             const comment = body => github.rest.issues.createComment({ owner, repo, issue_number: pr.number, body });
             if (label === 'needs-owner') {
               if (owners.length) await github.rest.issues.addAssignees({ owner, repo, issue_number: pr.number, assignees: owners });
@@ -54,29 +54,29 @@ jobs:
     steps:
       - uses: actions/github-script@{{githubScript}}
         env:
-          TUG_SHIP_BRANCH: {{shipBranchValue}}
-          TUG_LIVE_URL: {{liveUrl}}
-          TUG_MANY: {{manyDeploys}}
+          SHIPLANE_SHIP_BRANCH: {{shipBranchValue}}
+          SHIPLANE_LIVE_URL: {{liveUrl}}
+          SHIPLANE_MANY: {{manyDeploys}}
         with:
           script: |
             {{deployJobsSkipped}}
             const run = context.payload.workflow_run;
             const { owner, repo } = context.repo;
-            if (run.head_branch !== process.env.TUG_SHIP_BRANCH || /^pull_request/.test(run.event)) return core.info('not a run on the ship branch');
+            if (run.head_branch !== process.env.SHIPLANE_SHIP_BRANCH || /^pull_request/.test(run.event)) return core.info('not a run on the ship branch');
             const sha = run.head_sha;
             const short = sha.slice(0, 7);
-            const which = process.env.TUG_MANY === 'true' ? ` (${run.name})` : '';
+            const which = process.env.SHIPLANE_MANY === 'true' ? ` (${run.name})` : '';
             let body;
             if (run.conclusion === 'success') {
               const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, { owner, repo, run_id: run.id, per_page: 100 });
               if (deployJobsSkipped(jobs.map(j => ({ name: j.name, conclusion: j.conclusion })))) {
                 body = `Not deployed: every deploy job was skipped for ${short}${which}; the live site still runs the previous deploy. ${run.html_url}`;
-              } else body = `Deployed ✓ ${short} → ${process.env.TUG_LIVE_URL || '(no liveUrl in .agents/config.yml)'}${which}`;
+              } else body = `Deployed ✓ ${short} → ${process.env.SHIPLANE_LIVE_URL || '(no liveUrl in .agents/config.yml)'}${which}`;
             } else if (['failure', 'timed_out', 'startup_failure', 'action_required'].includes(run.conclusion)) {
               body = `Deploy failed: ${run.html_url}${which}`;
             } else return core.info(`conclusion ${run.conclusion}: nothing to report (a later run deploys it)`);
             const prs = (await github.rest.repos.listPullRequestsAssociatedWithCommit({ owner, repo, commit_sha: sha })).data;
-            const pr = prs.find(p => p.merge_commit_sha === sha) || prs.find(p => p.merged_at && p.base?.ref === process.env.TUG_SHIP_BRANCH);
+            const pr = prs.find(p => p.merge_commit_sha === sha) || prs.find(p => p.merged_at && p.base?.ref === process.env.SHIPLANE_SHIP_BRANCH);
             if (!pr) return core.info(`no PR for ${sha}`);
             await github.rest.issues.createComment({ owner, repo, issue_number: pr.number, body });
 
@@ -84,22 +84,22 @@ jobs:
     if: {{liveIf}}
     runs-on: {{runner}}
     timeout-minutes: 2
-    concurrency: tug-live-red
+    concurrency: shiplane-live-red
     permissions:
       actions: read
       issues: write
     steps:
       - uses: actions/github-script@{{githubScript}}
         env:
-          TUG_SHIP_BRANCH: {{shipBranchValue}}
-          TUG_OWNERS: {{owners}}
+          SHIPLANE_SHIP_BRANCH: {{shipBranchValue}}
+          SHIPLANE_OWNERS: {{owners}}
         with:
           script: |
             const run = context.payload.workflow_run;
             const { owner, repo } = context.repo;
-            const branch = process.env.TUG_SHIP_BRANCH;
+            const branch = process.env.SHIPLANE_SHIP_BRANCH;
             if (run.head_branch !== branch || /^pull_request/.test(run.event)) return core.info('not a run on the ship branch');
-            const owners = JSON.parse(process.env.TUG_OWNERS || '[]');
+            const owners = JSON.parse(process.env.SHIPLANE_OWNERS || '[]');
             // Runs can finish out of order: only the newest finished run on the branch speaks.
             const latest = (await github.rest.actions.listWorkflowRuns({ owner, repo, workflow_id: run.workflow_id, branch, status: 'completed', per_page: 1, exclude_pull_requests: true })).data.workflow_runs?.[0];
             if (latest && latest.id !== run.id && latest.run_number > run.run_number) return core.info(`run ${latest.id} is newer: it decides`);

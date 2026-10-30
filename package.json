@@ -1,11 +1,11 @@
 {
-  "name": "tug",
-  "version": "1.1.0",
-  "description": "One agent delivery flow for every repo: a Mergify merge queue, a pre-push gate, and `tug ship`.",
+  "name": "shiplane",
+  "version": "1.1.1",
+  "description": "Every agent PR in its own lane, landed in order and tracked to live: a Mergify merge queue, a pre-push gate, and `shiplane <pr>`.",
   "type": "module",
   "license": "MIT",
   "private": true,
-  "bin": { "tug": "bin/tug.mjs" },
+  "bin": { "shiplane": "bin/shiplane.mjs" },
   "engines": { "node": ">=20" },
   "files": ["bin", "lib", "templates", "skills"],
   "scripts": { "test": "node --test \"test/*.test.mjs\"" }

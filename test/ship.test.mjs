@@ -26,7 +26,7 @@ test('happy path: readies a draft, labels, posts the command once, waits for mer
   const w = new World({ pr: { isDraft: true }, deploys: { 'deploy.yml': { conclusion: 'success' } } });
   const out = await ship(w.opts());
   assert.equal(out.code, EXIT.ok, out.line);
-  assert.equal(out.line, 'tug ship #7: merged mmmmmmm into main · deploy: deploy.yml success · live: https://app.example.com');
+  assert.equal(out.line, 'shiplane ship #7: merged mmmmmmm into main · deploy: deploy.yml success · live: https://app.example.com');
   assert.ok(w.calls.some(c => c.name === 'ready'));
   assert.deepEqual(w.calls.find(c => c.name === 'addLabels').args, [['queue']]);
   assert.equal(comments(w).length, 1, 'the label alone does not queue: one command, posted once');
@@ -77,7 +77,7 @@ test('a push dequeues it: re-posts only after Mergify has registered the push', 
   assert.equal(posts[1].head, 'b'.repeat(40));
 });
 
-test('a command posted too early is cancelled by Mergify; tug posts again', async () => {
+test('a command posted too early is cancelled by Mergify; shiplane posts again', async () => {
   const w = new World({ ignoreComments: 1, deploys: {} });
   const out = await ship(w.opts({ config: { ...CONFIG, deployWorkflows: [] } }));
   assert.equal(out.code, EXIT.ok, out.line);
@@ -100,7 +100,7 @@ test('a red batch: exit 3 with Mergify\'s reason and the next step', async () =>
   const out = await ship(w.opts());
   assert.equal(out.code, EXIT.dequeued);
   assert.match(out.line, /Mergify took it out of the queue: The merge conditions cannot be satisfied due to failing checks/);
-  assert.match(out.next, /fix the failure, push, then run tug ship 7 again/);
+  assert.match(out.next, /fix the failure, push, then run shiplane 7 again/);
 });
 
 test('an old "Dequeued" answer from before this run is not read as a new failure', async () => {
@@ -219,7 +219,7 @@ test('a push (by anyone) that adds a needsOwner file stops it and disarms it', a
   assert.equal(comments(w).length, 1, 'never re-posted for the new head');
   assert.ok(w.comments.some(c => c.body === '@mergifyio dequeue'));
   assert.ok(!w.pr.labels.includes('queue'));
-  assert.match(out.next, /tug ship undid: removed queue; posted "@mergifyio dequeue"/);
+  assert.match(out.next, /shiplane ship undid: removed queue; posted "@mergifyio dequeue"/);
 });
 
 test('exits 3 and 5 leave nothing armed', async () => {

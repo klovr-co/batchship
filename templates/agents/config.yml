@@ -1,5 +1,5 @@
-# Settings every agent and every tug command reads (https://github.com/klovr-co/batchship). Change them here, nowhere else.
-# `tug init` adds keys that are missing and never changes the ones you set.
+# Settings every agent and every shiplane command reads (https://github.com/klovr-co/shiplane). Change them here, nowhere else.
+# `shiplane init` adds keys that are missing and never changes the ones you set.
 
 # Where "ship", "merge", "go" and "make it live" go: production or staging.
 #   staging:    merge into the staging branch; production only when the owner says "release", "promote", "production", "prod" or "main".
@@ -15,17 +15,17 @@ needsOwner:
   paths:{{needsOwnerPaths}}
   categories:{{needsOwnerCategories}}
 
-# The repo's own pre-push check, run after tug's line-ending and generated-file checks (git's pre-push stdin is
+# The repo's own pre-push check, run after shiplane's line-ending and generated-file checks (git's pre-push stdin is
 # passed through). null: none. The adopt skill writes it from what CI runs cheaply.
 checkCommand: {{checkCommand}}
 
-# How a fresh worktree installs dependencies. null: tug detects it from the lockfile and version pins.
+# How a fresh worktree installs dependencies. null: shiplane detects it from the lockfile and version pins.
 installCommand: {{installCommand}}
 
 # Generators whose output is committed: the pre-push gate runs each and fails if the tree changes.
 generated:{{generated}}
 
-# Workflow files that deploy a merge into the ship branch; `tug ship` waits for their runs on the merge commit.
+# Workflow files that deploy a merge into the ship branch; `shiplane ship` waits for their runs on the merge commit.
 deployWorkflows:{{deployWorkflows}}
 
 # Where to look after a deploy.
@@ -37,6 +37,14 @@ mergeMethod: {{mergeMethod}}
 # The check the merge queue waits for on its batch draft: the name of the CI gate job (templates/ci/gate.snippet.yml).
 ciCheck: {{ciCheck}}
 
-# GitHub logins of the people who decide (needs-owner) and hear about a red live branch: the tug events workflow
+# GitHub logins of the people who decide (needs-owner) and hear about a red live branch: the shiplane events workflow
 # assigns them. Example: [octocat]
 owners:{{owners}}
+
+# Hand-written AGENTS.md sections (by heading) that the shiplane block replaces: `shiplane init` removes them and says so in its
+# PR. [] keeps every section.
+supersededSections:{{supersededSections}}
+
+# Extra comment lines kept at the top of .github/workflows/shiplane-events.yml (a repo's CI rules may require some, such as
+# "# Dry run: ..." and "# Revert: ..."). Existing "# Dry run:" and "# Revert:" lines there are kept as well.
+workflowHeader:{{workflowHeader}}

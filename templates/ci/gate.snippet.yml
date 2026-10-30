@@ -1,4 +1,4 @@
-# tug CI gate: fit these pieces into your existing workflow (the adopt skill does this, as its own PR).
+# shiplane CI gate: fit these pieces into your existing workflow (the adopt skill does this, as its own PR).
 # Pattern: an ordinary PR runs no CI. Only Mergify's batch drafts (branches mergify/merge-queue/*) and manual runs do,
 # and one gate job is the check the queue waits for (.agents/config.yml `ciCheck` = its `name:`).
 

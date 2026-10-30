@@ -1,4 +1,4 @@
-// A simulated GitHub + Mergify for `tug ship`, on a virtual clock. It behaves the way Mergify did on 29 Oct 2026:
+// A simulated GitHub + Mergify for `shiplane ship`, on a virtual clock. It behaves the way Mergify did on 29 Oct 2026:
 // the queue label alone queues nothing; a comment that is exactly "@mergifyio queue" does; a push dequeues the PR,
 // and a command posted before Mergify has registered that push is cancelled.
 export class World {
